@@ -1,0 +1,30 @@
+All b2c sellers >100k, table where T52w GMV & latest listing attributes
+and other KPIs
+per week since '22
+Primary oisting, prim GMV,live list, gsp live listing, gsp enable LL, stagnant LL, FNL, promoted listing KPIs, promo listing Rev, PLS listing adopt, changes in promoted listed KPI, store KPI, no of basic, distance, anchor & feature store, retail standard KPI at LL level & sale level
+Fufillment, CBT GMV & total GMV, average photo count, title length, sub title length
+Anshul
+Soumya
+sold items
+PL gross rev
+Seller hub usage, native usage
+Seller coupon usage, campaign usage
+SME_CMP_GN - campaign data
+Trust KPI< SNAD< INR, Seller standard
+% export transc, LDR, 
+AVG start price in $
+PL net revenue penetration %
+PLA/PLS listing adoption %
+PLA GMV
+PLS enabled GMV penetration %
+Does the selller use our label or non ebay label
+Total Final value fees for each seller
+Final VF take rate
+Number of linked accounts
+Other Trust metric wrt seller
+Seller coupon spend
+If possible - avg viewed items per week for each seller
+Numer of M2M for seller for that week
+
+Each week,  latest CSS segment for seller per week
+KPI_last for latest week value metrics
