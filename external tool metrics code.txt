@@ -1,0 +1,4010 @@
+Sample Output Link -> https://docs.google.com/presentation/d/1hncZtkacmP1Kid78zK0SdHg73ZfVUxAB/edit?usp=sharing&ouid=115348600772643158827&rtpof=true&sd=true
+
+
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_brand_lookup_sales_metrics;
+CREATE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_brand_lookup_sales_metrics USING PARQUET AS
+select
+br.item_id,
+br.auct_end_dt,
+lower(trim(br.BRAND_TXT)) as brand
+from ACCESS_VIEWS.CTLG_ITEM_FACT br
+where
+1 = 1
+and coalesce(br.auct_end_dt, current_date) >= DATE_SUB("2022-09-01",7)
+and br.ITEM_SITE_ID in (77)
+group by 1,2,3;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_brand_lookup_sales_metrics COMPUTE STATISTICS FOR ALL COLUMNS;
+    
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table USING PARQUET AS
+select /*+ MERGE(br) */
+user_slctd_id,
+slr_id,
+items.item_id,
+cat.leaf_categ_id,
+cat.meta_categ_name,
+cat.categ_lvl2_name,
+br.brand,
+items.item_site_id as site_id,
+items.auct_start_dt,
+items.auct_end_dt,
+CASE WHEN CND.CNDTN_ROLLUP_ID = 1 THEN 'NEW'
+WHEN CND.CNDTN_ROLLUP_ID = 2 THEN 'REFURBISHED'
+WHEN CND.CNDTN_ROLLUP_ID = 3 THEN 'USED'
+else 'OTHER' end as item_cndtn,
+CASE WHEN CND.ITEM_CNDTN_ID =1000 THEN 'New'
+WHEN CND.ITEM_CNDTN_ID =1500 THEN 'New other (see details)'
+WHEN CND.ITEM_CNDTN_ID =1750 THEN 'New with defects'
+WHEN CND.ITEM_CNDTN_ID =2000 THEN 'Certified - Refurbished'
+WHEN CND.ITEM_CNDTN_ID =2010 THEN 'Excellent - Refurbished'
+WHEN CND.ITEM_CNDTN_ID =2020 THEN 'Very Good - Refurbished'
+WHEN CND.ITEM_CNDTN_ID =2030 THEN 'Good - Refurbished'
+WHEN CND.ITEM_CNDTN_ID =2500 THEN 'Seller refurbished'
+WHEN CND.ITEM_CNDTN_ID =2750 THEN 'Like new'
+WHEN CND.ITEM_CNDTN_ID =3000 THEN 'Used'
+WHEN CND.ITEM_CNDTN_ID =4000 THEN 'Very good'
+WHEN CND.ITEM_CNDTN_ID =5000 THEN 'Good'
+WHEN CND.ITEM_CNDTN_ID =6000 THEN 'Acceptable'
+WHEN CND.ITEM_CNDTN_ID =7000 THEN 'For parts or not working'
+else 'Other' end as item_cndtn_2
+
+from ACCESS_VIEWS.dw_lstg_item items
+
+inner join access_views.dw_category_groupings cat
+on items.item_site_id = cat.site_id
+and items.leaf_categ_id = cat.leaf_categ_id
+
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_brand_lookup_sales_metrics br 
+on items.item_id = br.item_id
+
+left join ACCESS_VIEWS.lstg_item_cndtn cnd
+on items.item_id = cnd.item_id
+
+inner join ACCESS_VIEWS.dw_users u 
+on u.user_id=items.slr_id
+
+where 1=1
+and coalesce(items.auct_end_dt,current_date)>=date_sub("2022-09-01",7)
+and items.auct_type_code not in (10,12,15) 
+and items.item_site_id in (77)
+
+
+and items.slr_id in (18116485)
+
+group by 1,2,3,4,5,6,7,8,9,10,11,12
+;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_ct purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_ct USING PARQUET AS
+select /*+ MERGE(br) */
+("2023-09-01"||' to '||"2024-08-31") time_period, 
+br.user_slctd_id,
+DW_CURRENCIES.CURNCY_DESC,
+DW_CURRENCIES.CURNCY_SYMBOL,	   	
+count(distinct buyer_id) as buyers,
+sum(case when total_amount > 0 then (gmv_plan_usd) else 0 end) AS gross_gmv_usd,
+sum(case when total_amount > 0 then (gmv_plan_usd) else 0 end)/count(distinct cal_dt)  AS avg_daily_spend_usd,
+(sum(case when total_amount > 0 then (gmv_plan_usd) else 0 end)/count(distinct cal_dt)/24) as avg_hourly_gmv_usd,
+
+SUM(CASE WHEN DW_CHECKOUT_TRANS.LSTG_CURNCY_ID = DW_USERS_INFO.BLNG_CURNCY_ID THEN GMV_LC_AMT
+ELSE (DW_CHECKOUT_TRANS.GMV_SPOT_USD / DW_DAILY_EXCHANGE_RATES.exchng_rate)
+END) as gross_gmv_bc,
+
+SUM(CASE WHEN DW_CHECKOUT_TRANS.LSTG_CURNCY_ID = DW_USERS_INFO.BLNG_CURNCY_ID THEN GMV_LC_AMT
+ELSE (DW_CHECKOUT_TRANS.GMV_SPOT_USD / DW_DAILY_EXCHANGE_RATES.exchng_rate)
+END) / COUNT(DISTINCT CAL_DT) AS avg_daily_spend_bc,
+
+SUM(CASE WHEN DW_CHECKOUT_TRANS.LSTG_CURNCY_ID = DW_USERS_INFO.BLNG_CURNCY_ID THEN GMV_LC_AMT
+ELSE (DW_CHECKOUT_TRANS.GMV_SPOT_USD / DW_DAILY_EXCHANGE_RATES.exchng_rate)
+END) / (COUNT(DISTINCT CAL_DT) * 24) AS avg_hourly_gmv_bc,
+            
+sum(CORE_ITEM_CNT)/count(distinct cal_dt) as avg_purchases_daily,
+sum(CORE_ITEM_CNT) as purchases
+
+from access_views.dw_checkout_trans	 
+
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table br 
+on dw_checkout_trans.item_id=br.item_id          
+
+inner join access_views.dw_cal_dt cal 
+on cal.cal_dt=dw_checkout_trans.gmv_dt
+
+LEFT JOIN ACCESS_VIEWS.DW_USERS_INFO
+ON DW_CHECKOUT_TRANS.SELLER_ID = DW_USERS_INFO.USER_ID
+
+LEFT JOIN ACCESS_VIEWS.DW_CURRENCIES
+ON DW_USERS_INFO.BLNG_CURNCY_ID = DW_CURRENCIES.CURNCY_ID
+
+LEFT JOIN ACCESS_VIEWS.DW_DAILY_EXCHANGE_RATES
+ON DW_CHECKOUT_TRANS.GMV_DT = DW_DAILY_EXCHANGE_RATES.day_of_trans
+AND DW_DAILY_EXCHANGE_RATES.curncy_id = DW_USERS_INFO.BLNG_CURNCY_ID
+
+where dw_checkout_trans.gmv_dt between "2023-09-01" and "2024-08-31" 
+and dw_checkout_trans.auct_end_dt >= date_sub("2023-09-01",7)
+and dw_checkout_trans.site_id in (77) 	
+and dw_checkout_trans.sale_type in (1,2,7,8,9,13)	
+and trim(upper(dw_checkout_trans.rprtd_wacko_yn)) = 'N'
+and PAID_IND = 1 
+and CHECKOUT_STATUS = 2 	
+group by 1,2,3,4;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_pt purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_pt USING PARQUET AS
+select /*+ MERGE(br) */
+("2022-09-01"||' to '||"2023-08-31")time_period2, 
+br.user_slctd_id,	   	
+count(distinct buyer_id) as buyers,
+sum(case when total_amount > 0 then (gmv_plan_usd) else 0 end) AS gross_gmv_usd,
+sum(case when total_amount > 0 then (gmv_plan_usd) else 0 end)/count(distinct cal_dt)  AS avg_daily_spend_usd,
+(sum(case when total_amount > 0 then (gmv_plan_usd) else 0 end)/count(distinct cal_dt)/24) as avg_hourly_gmv_usd,
+
+SUM(CASE WHEN DW_CHECKOUT_TRANS.LSTG_CURNCY_ID = DW_USERS_INFO.BLNG_CURNCY_ID THEN GMV_LC_AMT
+ELSE (DW_CHECKOUT_TRANS.GMV_SPOT_USD / DW_DAILY_EXCHANGE_RATES.exchng_rate)
+END) as gross_gmv_bc,
+
+SUM(CASE WHEN DW_CHECKOUT_TRANS.LSTG_CURNCY_ID = DW_USERS_INFO.BLNG_CURNCY_ID THEN GMV_LC_AMT
+ELSE (DW_CHECKOUT_TRANS.GMV_SPOT_USD / DW_DAILY_EXCHANGE_RATES.exchng_rate)
+END) / COUNT(DISTINCT CAL_DT) AS avg_daily_spend_bc,
+
+SUM(CASE WHEN DW_CHECKOUT_TRANS.LSTG_CURNCY_ID = DW_USERS_INFO.BLNG_CURNCY_ID THEN GMV_LC_AMT
+ELSE (DW_CHECKOUT_TRANS.GMV_SPOT_USD / DW_DAILY_EXCHANGE_RATES.exchng_rate)
+END) / (COUNT(DISTINCT CAL_DT) * 24) AS avg_hourly_gmv_bc,
+            
+sum(CORE_ITEM_CNT)/count(distinct cal_dt) as avg_purchases_daily,
+sum(CORE_ITEM_CNT) as purchases
+
+from access_views.dw_checkout_trans	 
+
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table br 
+on dw_checkout_trans.item_id=br.item_id          
+
+inner join access_views.dw_cal_dt cal 
+on cal.cal_dt=dw_checkout_trans.gmv_dt
+
+LEFT JOIN ACCESS_VIEWS.DW_USERS_INFO
+ON DW_CHECKOUT_TRANS.SELLER_ID = DW_USERS_INFO.USER_ID
+
+LEFT JOIN ACCESS_VIEWS.DW_DAILY_EXCHANGE_RATES
+ON DW_CHECKOUT_TRANS.GMV_DT = DW_DAILY_EXCHANGE_RATES.day_of_trans
+AND DW_DAILY_EXCHANGE_RATES.curncy_id = DW_USERS_INFO.BLNG_CURNCY_ID	
+
+where dw_checkout_trans.gmv_dt between "2022-09-01" and "2023-08-31" 
+and dw_checkout_trans.auct_end_dt >= date_sub("2022-09-01",7)
+and dw_checkout_trans.site_id in (77) 	
+and dw_checkout_trans.sale_type in (1,2,7,8,9,13)	
+and trim(upper(dw_checkout_trans.rprtd_wacko_yn)) = 'N'
+and PAID_IND = 1 
+and CHECKOUT_STATUS = 2 	
+group by 1,2;	
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_pt COMPUTE STATISTICS FOR ALL COLUMNS;
+
+select 'sales_metrics_client_insights' as insights_type
+,"Seller" AS insights_level
+,"atp-autoteile" AS insights_level_value
+,time_period as date_range
+,time_period2 as date_range_comp
+,("77") as site_id
+,CURNCY_DESC as billing_currency
+,CURNCY_SYMBOL as billing_currency_symbol
+
+,COALESCE(a.buyers, 0) as buyers
+,COALESCE(a.gross_gmv_bc, 0) as gross_gmv_bc
+,COALESCE(((a.gross_gmv_bc-b.gross_gmv_bc)/b.gross_gmv_bc), 0) as gross_gmv_growth
+,COALESCE(a.avg_daily_spend_bc, 0) as avg_daily_spend
+,COALESCE(a.avg_hourly_gmv_bc, 0) as avg_gmv_hourly
+,COALESCE(a.avg_purchases_daily, 0) as avg_purchases_daily
+,COALESCE(a.purchases, 0) as purchases
+,COALESCE(b.purchases, 0) as purchases_pt
+,COALESCE(((a.purchases-b.purchases)/b.purchases), 0) as purchase_growth
+,COALESCE(a.gross_gmv_bc/a.purchases, 0) as asp_ct
+,COALESCE(b.gross_gmv_bc/b.purchases, 0) as asp_pt
+,COALESCE(((asp_ct-asp_pt)/asp_pt), 0) as asp_growth
+
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_ct a
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_pt b
+on 1=1;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_totgmv_parentcategory_seller purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_totgmv_parentcategory_seller USING PARQUET AS
+select /*+ MERGE(br) */
+br.user_slctd_id,	 	
+sum(GMV_LC_AMT) AS gmv_tot
+from access_views.dw_checkout_trans	
+
+inner join access_views.dw_category_groupings cmp
+on cmp.leaf_categ_id = dw_checkout_trans.leaf_categ_id
+and cmp.site_id = dw_checkout_trans.site_id 
+inner join access_views.dw_cal_dt cal 
+on cal.cal_dt=dw_checkout_trans.gmv_dt		   
+
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table br 
+on dw_checkout_trans.item_id=br.item_id          
+
+where dw_checkout_trans.gmv_dt between "2023-09-01" and "2024-08-31"
+and dw_checkout_trans.auct_end_dt >= date_sub("2023-09-01",7)
+and dw_checkout_trans.site_id in (77) 	
+and dw_checkout_trans.sale_type in (1,2,7,8,9,13)	
+and trim(upper(dw_checkout_trans.rprtd_wacko_yn)) = 'N'
+and PAID_IND = 1 
+and CHECKOUT_STATUS = 2
+group by 1
+;			
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_totgmv_parentcategory_seller COMPUTE STATISTICS FOR ALL COLUMNS;
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_top10_l1_seller purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_top10_l1_seller USING PARQUET AS
+select /*+ MERGE(br) */ /*+ MERGE(pc) */
+br.user_slctd_id as seller_name,
+cmp.meta_categ_name,
+gmv_tot,
+count(distinct buyer_id) as buyers,
+sum(GMV_LC_AMT)/gmv_tot as share_of_gmv,
+sum(CORE_ITEM_CNT)/count(distinct cal_dt) as avg_purchases_daily,
+Row_Number() over(order by share_of_gmv desc) as rank_category  
+from access_views.dw_checkout_trans
+inner join access_views.dw_category_groupings cmp
+on cmp.leaf_categ_id = dw_checkout_trans.leaf_categ_id
+and cmp.site_id = dw_checkout_trans.site_id          
+inner join access_views.dw_cal_dt cal 
+on cal.cal_dt=dw_checkout_trans.gmv_dt
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table br 
+on dw_checkout_trans.item_id=br.item_id 
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_totgmv_parentcategory_seller pc
+on 1 = 1
+where dw_checkout_trans.gmv_dt between "2023-09-01" and "2024-08-31" 
+and dw_checkout_trans.auct_end_dt >= date_sub("2023-09-01",7)
+and dw_checkout_trans.site_id in (77) 	
+and dw_checkout_trans.sale_type in (1,2,7,8,9,13)	
+and trim(upper(dw_checkout_trans.rprtd_wacko_yn)) = 'N'
+and PAID_IND = 1 
+and CHECKOUT_STATUS = 2 	
+group by 1,2,3
+ORDER BY share_of_gmv DESC
+LIMIT 10;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_top10_l1_seller COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_top10_l2_seller purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_top10_l2_seller USING PARQUET AS
+select /*+ MERGE(br) */ /*+ MERGE(pc) */
+br.user_slctd_id as seller_name,
+cmp.meta_categ_name, 
+cmp.categ_lvl2_name,
+gmv_tot,
+count(distinct buyer_id) as buyers,
+sum(GMV_LC_AMT)/gmv_tot as share_of_gmv,
+sum(CORE_ITEM_CNT)/count(distinct cal_dt) as avg_purchases_daily,
+Row_Number() over(order by share_of_gmv desc, cmp.meta_categ_name) as rank_category  
+from access_views.dw_checkout_trans	 
+inner join access_views.dw_category_groupings cmp
+on cmp.leaf_categ_id = dw_checkout_trans.leaf_categ_id
+and cmp.site_id = dw_checkout_trans.site_id          
+inner join access_views.dw_cal_dt cal 
+on cal.cal_dt=dw_checkout_trans.gmv_dt
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table br 
+on dw_checkout_trans.item_id=br.item_id		  
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_totgmv_parentcategory_seller pc
+on 1 = 1
+where dw_checkout_trans.gmv_dt between "2023-09-01" and "2024-08-31" 
+and dw_checkout_trans.auct_end_dt >= date_sub("2023-09-01",7)
+and dw_checkout_trans.site_id in (77) 	
+and dw_checkout_trans.sale_type in (1,2,7,8,9,13)	
+and trim(upper(dw_checkout_trans.rprtd_wacko_yn)) = 'N'
+and PAID_IND = 1 
+and CHECKOUT_STATUS = 2 	
+group by 1,2,3,4
+ORDER BY share_of_gmv DESC, cmp.meta_categ_name
+limit 10;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_top10_l2_seller COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+
+
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_avg_daily_views purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_avg_daily_views USING PARQUET AS
+select /*+ MERGE(i) */
+SUM(VI_CNT) / (1 + datediff("2024-08-31", "2023-09-01")) as avg_views_daily     
+from ACCESS_VIEWS.USER_BRWS_SRCH_SD vi    
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table i 
+on vi.item_id = i.item_id
+where CAL_DT between "2023-09-01" and "2024-08-31"
+and vi.site_id in (77) 
+;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_avg_daily_views COMPUTE STATISTICS FOR ALL COLUMNS;
+
+select 
+    'views_metrics' AS insights_type,
+    "Seller" AS insights_level,
+    "atp-autoteile" AS insights_level_value,
+    ("2023-09-01"||' to '||"2024-08-31") AS date_range,
+    COALESCE(avg_views_daily, 0) AS avg_views_daily
+FROM 
+    p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_avg_daily_views
+UNION ALL
+select 
+    'views_metrics' AS insights_type,
+    "Seller" AS insights_level,
+    "atp-autoteile" AS insights_level_value,
+    ("2023-09-01"||' to '||"2024-08-31") AS date_range,
+    0 AS avg_views_daily
+WHERE NOT EXISTS (
+    select 1
+    FROM p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_avg_daily_views
+    LIMIT 1
+);
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_kw_table purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_kw_table USING PARQUET AS
+select
+keyword,
+SUM(searches) AS search_count,
+Row_Number() over(order by search_count desc) as rank_keyword
+from
+(
+    select
+    sqr as keyword,
+    count(*) as searches
+    from 
+    (
+        select
+        a.SQR,
+        a.SESSION_START_DT, 
+        a.SITE_ID, 
+        a.GUID, 
+        a.SESSION_SKEY, 
+        a.COBRAND, 
+        a.SEQNUM
+                                from access_views.srch_srp_item_fact a
+
+                
+        where 1=1
+        and a.item_slr_id in (18116485)
+        and a.session_start_dt between "2024-06-02" and "2024-08-31"          and a.item_site_id in (77)
+        and a.site_id in (77)
+        and a.carousel_rank = -1         and a.bos_item_rank  = -1         group by 1,2,3,4,5,6,7
+    ) b 
+    group by 1
+) x 
+group by 1
+limit 10;  
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_kw_table COMPUTE STATISTICS FOR ALL COLUMNS;
+
+select 
+    'search_metrics' AS insights_type,
+    "Seller" AS insights_level,
+    "atp-autoteile" AS insights_level_value,
+    ("2024-06-02"||' to '||"2024-08-31") AS date_range,
+    COALESCE(rank_keyword, 0) AS rank_keyword,
+    COALESCE(keyword, 0) AS keyword,
+    COALESCE(search_count, 0) AS search_count
+FROM 
+    p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_kw_table
+UNION ALL
+select 
+    'search_metrics' AS insights_type,
+    "Seller" AS insights_level,
+    "atp-autoteile" AS insights_level_value,
+    ("2024-06-02"||' to '||"2024-08-31") AS date_range,
+    0 AS rank_keyword,
+    0 AS keyword,
+    0 AS search_count
+WHERE NOT EXISTS (
+    select 1
+    FROM p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_kw_table
+    LIMIT 1
+);
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_totgmv_brands purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_totgmv_brands USING PARQUET AS
+select	 /*+ MERGE(items) */ 	
+"atp-autoteile" as insights_level_value,
+sum(GMV_LC_AMT) AS gmv_tot
+from access_views.dw_checkout_trans	
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table items
+           on dw_checkout_trans.item_id = items.item_id
+inner join access_views.dw_cal_dt cal 
+           on cal.cal_dt=dw_checkout_trans.gmv_dt		   
+where dw_checkout_trans.gmv_dt between "2023-09-01" and "2024-08-31"
+and dw_checkout_trans.auct_end_dt >= date_sub("2023-09-01",7)
+and dw_checkout_trans.site_id in (77) 	
+and dw_checkout_trans.sale_type in (1,2,7,8,9,13)	
+and trim(upper(dw_checkout_trans.rprtd_wacko_yn)) = 'N'
+and PAID_IND = 1 
+and CHECKOUT_STATUS = 2 
+group by 1
+;	
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_totgmv_brands COMPUTE STATISTICS FOR ALL COLUMNS;
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_top10_brands purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_top10_brands USING PARQUET AS				 
+select	/*+ MERGE(items) */ /*+ MERGE(pc) */
+"atp-autoteile" as insights_level_value,
+items.brand,	 
+gmv_tot,
+sum(GMV_LC_AMT)/gmv_tot as share_of_gmv,
+Row_Number() over(order by share_of_gmv desc) as rank_brand  
+from access_views.dw_checkout_trans	 
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table items
+           on dw_checkout_trans.item_id = items.item_id        
+inner join access_views.dw_cal_dt cal 
+           on cal.cal_dt=dw_checkout_trans.gmv_dt		  
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_totgmv_brands pc
+           on 1 = 1
+where dw_checkout_trans.gmv_dt between "2023-09-01" and "2024-08-31" 
+and dw_checkout_trans.auct_end_dt >= date_sub("2023-09-01",7)
+and dw_checkout_trans.site_id in (77) 	
+and dw_checkout_trans.sale_type in (1,2,7,8,9,13)	
+and trim(upper(dw_checkout_trans.rprtd_wacko_yn)) = 'N'
+and PAID_IND = 1 
+and CHECKOUT_STATUS = 2
+and lower(brand) not in ('unbranded', 'value', 'universal', 'unbranded/generic', 'does not apply', 'handmade', 'not available', 'markenlos')
+group by pc.insights_level_value,brand,gmv_tot
+limit 10;						 
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_top10_brands COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_slr_brand_dom_leaf;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_slr_brand_dom_leaf USING PARQUET AS
+select /*+ MERGE(brand_items) */ /*+ MERGE(ck) */ /*+ MERGE(dg) */
+brand_items.brand,
+dg.leaf_categ_name,
+dg.leaf_categ_id,
+sum(ck.GMV_LC_AMT) as dom_gmv
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_brand_lookup_sales_metrics brand_items
+inner join access_views.dw_checkout_trans ck on (ck.item_id = brand_items.item_id)
+inner join access_views.dw_category_groupings dg on (ck.leaf_categ_id = dg.leaf_categ_id and ck.site_id = dg.site_id)
+where ck.gmv_dt between "2023-09-01" and "2024-08-31"
+  and ck.site_id in (77)
+  and ck.seller_id in (18116485)
+  and lower(ck.rprtd_wacko_yn) = 'n'
+  and ck.sale_type in (1, 2, 7, 8, 9, 13)
+  and ck.checkout_status not in (1,3)
+group by 1,2,3
+qualify row_number() over(partition by brand_items.brand order by dom_gmv desc) = 1;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_slr_brand_dom_leaf COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_slr_brand_dom_leaf_cndtn;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_slr_brand_dom_leaf_cndtn USING PARQUET AS
+select
+temp.brand,
+temp.leaf_categ_name,
+temp.leaf_categ_id,
+fct.cndtn_rollup_id,
+sum(ck.GMV_LC_AMT) as dom_gmv,
+avg(ck.item_price) as dom_asp
+
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_slr_brand_dom_leaf temp
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_brand_lookup_sales_metrics brand_items on brand_items.brand = temp.brand
+inner join access_views.dw_checkout_trans ck on ck.item_id = brand_items.item_id
+inner join PRS_RESTRICTED_V.SLNG_LSTG_SUPER_FACT fct on ck.item_id = fct.item_id
+where ck.leaf_categ_id = temp.leaf_categ_id
+  and ck.gmv_dt between "2023-09-01" and "2024-08-31"
+  and ck.site_id in (77)
+  and ck.seller_id in (18116485)
+  and lower(ck.rprtd_wacko_yn) = 'n'
+  and ck.sale_type in (1, 2, 7, 8, 9, 13)
+  and ck.checkout_status not in (1,3)
+group by 1,2,3,4
+qualify row_number() over(partition by temp.brand, temp.leaf_categ_id order by dom_gmv desc) = 1;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_slr_brand_dom_leaf_cndtn COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_slr_brand_leaf_comp_metrics;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_slr_brand_leaf_comp_metrics USING PARQUET AS
+select
+ck.leaf_categ_id
+,avg(ck.item_price) as leaf_comp_asp
+from access_views.dw_checkout_trans ck
+
+inner join PRS_RESTRICTED_V.SLNG_LSTG_SUPER_FACT fct
+on ck.item_id = fct.item_id
+
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_slr_brand_dom_leaf_cndtn cnd
+on cnd.leaf_categ_id = ck.leaf_categ_id
+and cnd.cndtn_rollup_id = fct.cndtn_rollup_id
+
+where 1=1
+and ck.gmv_dt between "2023-09-01" and "2024-08-31" 
+and ck.site_id in (77)
+and fct.B2C_C2C in ('B2C')
+and lower(ck.rprtd_wacko_yn) = 'n'
+and ck.sale_type in (1, 2, 7, 8, 9, 13)
+and ck.checkout_status not in (1,3)
+and ck.seller_id not in (18116485)
+group by 1;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_slr_brand_leaf_comp_metrics COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_slr_brand_leaf_srch_metrics;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_slr_brand_leaf_srch_metrics USING PARQUET AS
+select /*+ MERGE(item) */ /*+ MERGE(brand_items) */
+brand_items.brand
+,round(percentile(item_rank_num,0.5)) as brand_dom_cat_median_rank
+from access_views.srch_srp_item_fact item 
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_brand_lookup_sales_metrics brand_items on (item.item_id = brand_items.item_id)
+where item.session_start_dt between "2024-06-02" and "2024-08-31"  and item_site_id in (77) 
+and carousel_rank = -1 and bos_item_rank  = -1 and leaf_categ_id in (select leaf_categ_id from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_slr_brand_dom_leaf group by 1)
+and item_slr_id in (18116485)
+group by 1;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_slr_brand_leaf_srch_metrics COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_listings_ct purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_listings_ct USING PARQUET AS
+select /*+ MERGE(sl) */ /*+ MERGE(elg) */ /*+ MERGE(cat) */ /*+ MERGE(cal) */ /*+ MERGE(s) */
+("2023-09-01"||' to '||"2024-08-31") as flag,
+cat.leaf_categ_id, 	   	   
+count(distinct case when cal_dt = date_add(CURRENT_DATE,-2) then lstg.item_id end) items
+
+from access_views.dw_lstg_item lstg
+
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table sl
+on lstg.item_id=sl.item_id
+
+inner join access_views.dw_category_groupings cat
+on lstg.item_site_id = cat.site_id
+and lstg.leaf_categ_id = cat.leaf_categ_id
+
+inner join access_views.dw_cal_dt cal
+on cal.cal_dt between lstg.auct_start_dt and lstg.auct_end_dt
+
+left join access_views.pl_elgbl_cats elg
+on elg.site_id =lstg.item_site_id
+and elg.leaf_categ_id = lstg.leaf_categ_id
+
+left join ACCESS_VIEWS.DW_GEM2_CMN_STCKOUT_HIST s 
+on lstg.item_id=s.lstg_id 
+and cal.cal_date between start_dt and end_dt 
+
+where 1=1
+and cal_dt BETWEEN date_add(CURRENT_DATE,-2) and date_add(CURRENT_DATE,-2) and lstg.auct_end_dt >= cal_dt and lstg.auct_start_dt <= cal_dt and lower(wacko_yn) = lower('N')  and auct_type_code in (7,9)
+and elg.leaf_categ_id is not null
+and cat.leaf_categ_id in (select leaf_categ_id from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_slr_brand_dom_leaf group by 1)
+and cat.sap_category_id not in (5,7,41,23,-999)
+
+and s.lstg_id is null and cat.site_id in (77) group by 1,2
+;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_listings_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+    
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pls_listings_ct purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pls_listings_ct USING PARQUET AS
+select /*+ MERGE(st) */ /*+ MERGE(pls) */ /*+ MERGE(b) */ /*+ MERGE(cal) */
+("2023-09-01"||' to '||"2024-08-31") as flag, 
+pls.leaf_categ_id,	   	   
+count(distinct pls.item_id) as pls_items
+from p_ads_analytics_t.PL_Listing_Daily pls
+inner join p_ads_analytics_t.pl_campaign_daily b 
+on pls.ads_cmpgn_id = b.ads_cmpgn_id
+and pls.cal_dt = b.cal_dt 
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+on pls.item_id=st.item_id
+inner join access_views.dw_cal_dt cal 
+on cal.cal_dt = pls.cal_dt		   
+where pls.cal_dt between date_add(CURRENT_DATE,-2) and date_add(CURRENT_DATE,-2) 
+and (b.cmpgn_sts_id is null or b.cmpgn_sts_id in (1,7))
+and pls.leaf_categ_id in (select leaf_categ_id from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_slr_brand_dom_leaf group by 1)
+group by 1,2;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pls_listings_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_listings_base_ct purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_listings_base_ct USING PARQUET AS
+select /*+ MERGE(st) */ /*+ MERGE(pla) */
+st.leaf_categ_id as leaf_categ_id,
+pla.item_id as pla_item_id,
+pla.cal_dt as pla_active_dt
+
+from p_liszt_v.plcpc_bt_listing_daily pla
+
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+on pla.item_id=st.item_id
+
+where
+cal_dt between date_add(CURRENT_DATE,-2) and date_add(CURRENT_DATE,-2) 
+group by 1,2,3; 
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_listings_base_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_active_listings_ct purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_active_listings_ct USING PARQUET AS
+select /*+ MERGE(st) */ /*+ MERGE(pla) */ /*+ MERGE(cal) */
+("2023-09-01"||' to '||"2024-08-31") as flag,
+pla.leaf_categ_id as leaf_categ_id, 
+count(distinct pla_item_id) as pla_items
+
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_listings_base_ct pla
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+        on pla.pla_item_id=st.item_id
+inner join access_views.dw_cal_dt cal 
+        on cal.cal_dt=pla.pla_active_dt
+where pla.pla_active_dt between  date_add(CURRENT_DATE,-2) and date_add(CURRENT_DATE,-2) 
+and cal_dt between  date_add(CURRENT_DATE,-2) and date_add(CURRENT_DATE,-2) 
+group by 1,2;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_active_listings_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_leaf_pl_adoption purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_leaf_pl_adoption USING PARQUET AS
+select /*+ MERGE(a) */ /*+ MERGE(b) */ /*+ MERGE(c) */
+a.leaf_categ_id,
+COALESCE(b.pls_items / a.items, 0) as pls_adoption,
+COALESCE(c.pla_items / a.items, 0) as pla_adoption
+
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_listings_ct a
+
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pls_listings_ct b
+on a.leaf_categ_id = b.leaf_categ_id
+
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_active_listings_ct c
+on a.leaf_categ_id = c.leaf_categ_id
+;
+
+
+select 
+'top_brands' AS insights_type,
+"Seller" AS insights_level,
+"atp-autoteile" AS insights_level_value,
+("2023-09-01"||' to '||"2024-08-31") AS date_range,
+COALESCE(rank_brand, 0) AS rank_brand,
+COALESCE(k.brand, 0) AS brand,
+COALESCE(share_of_gmv, 0) AS share_of_gmv,
+COALESCE(t.leaf_categ_name, 0) as dominant_category,
+COALESCE(leaf.pls_adoption, 0) as pls_adoption,
+COALESCE(leaf.pla_adoption, 0) as pla_adoption,
+COALESCE(t.dom_asp, 0) dom_asp,
+COALESCE(cmp.leaf_comp_asp, 0)leaf_comp_asp,
+COALESCE(t.dom_asp/cmp.leaf_comp_asp, 0) as seller_price_vs_ebay,
+COALESCE(brand_dom_cat_median_rank, 0) brand_dom_cat_median_rank
+FROM p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_top10_brands k
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_slr_brand_dom_leaf_cndtn t on (k.brand = t.brand)
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_slr_brand_leaf_comp_metrics cmp on (t.leaf_categ_id = cmp.leaf_categ_id)
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_slr_brand_leaf_srch_metrics sllr_srch on (k.brand = sllr_srch.brand)
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_leaf_pl_adoption leaf on (t.leaf_categ_id = leaf.leaf_categ_id)
+order by rank_brand;
+
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_ct purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_ct USING PARQUET AS				 
+select	
+("2023-09-01"||' to '||"2024-08-31") time_period, 
+user_slctd_id,	   	
+count(distinct buyer_id) as buyers,
+sum(purchases) as purchases,
+ifnull(sum(gmv_plan_bc)/sum(purchases), 0) as ASP,
+
+sum(gmv_plan_bc) as gmv,
+sum(gross_gmv_plan_bc) as gross_gmv,
+
+sum(case when item_cndtn = 'NEW' then (gmv_plan_bc) else 0 end) as new_item_gmv,
+sum(case when item_cndtn = 'REFURBISHED' then (gmv_plan_bc) else 0 end) as refurbished_item_gmv,
+sum(case when item_cndtn = 'USED' then (gmv_plan_bc) else 0 end) as used_item_gmv,
+
+sum(case when item_cndtn_2 = 'New' then (gmv_plan_bc) else 0 end) as new_new_gmv,
+sum(case when item_cndtn_2 = 'New other (see details)' then (gmv_plan_bc) else 0 end) as new_other_gmv,
+sum(case when item_cndtn_2 = 'New with defects' then (gmv_plan_bc) else 0 end) as new_defects_gmv,
+
+sum(case when item_cndtn_2 = 'Certified - Refurbished' then (gmv_plan_bc) else 0 end) as refurbished_certified_gmv,
+sum(case when item_cndtn_2 = 'Excellent - Refurbished' then (gmv_plan_bc) else 0 end) as refurbished_excellent_gmv,
+sum(case when item_cndtn_2 = 'Very Good - Refurbished' then (gmv_plan_bc) else 0 end) as refurbished_verygood_gmv,
+sum(case when item_cndtn_2 = 'Good - Refurbished' then (gmv_plan_bc) else 0 end) as refurbished_good_gmv,
+sum(case when item_cndtn_2 = 'Seller refurbished' then (gmv_plan_bc) else 0 end) as refurbished_seller_gmv,
+
+sum(case when item_cndtn_2 = 'Like new' then (gmv_plan_bc) else 0 end) as used_likenew_gmv,
+sum(case when item_cndtn_2 = 'Used' then (gmv_plan_bc) else 0 end) as used_used_gmv,
+sum(case when item_cndtn_2 = 'Very good' then (gmv_plan_bc) else 0 end) as used_verygood_gmv,
+sum(case when item_cndtn_2 = 'Good' then (gmv_plan_bc) else 0 end) as used_good_gmv,
+sum(case when item_cndtn_2 = 'Acceptable' then (gmv_plan_bc) else 0 end) as used_acceptable_gmv,
+sum(case when item_cndtn_2 = 'For parts or not working' then (gmv_plan_bc) else 0 end) as used_forparts_gmv
+
+from (
+
+SELECT 
+	seller_id,
+    user_slctd_id,
+    item_cndtn,
+    item_cndtn_2,
+    buyer_id,
+    sum(purchases) as purchases,
+	ROUND(SUM(GMV_SPOT_USD - Refund_Amount_USD), 2) AS gmv_plan_usd,
+	ROUND(SUM(GMV_in_blng_CURNCY - REFUND_AMOUNT_BILLING_CURRENCY), 2) AS gmv_plan_bc,
+	ROUND(SUM(GMV_in_blng_CURNCY), 2) AS gross_gmv_plan_bc
+    
+FROM (
+	SELECT /*+ MERGE(br) */
+		DW_CHECKOUT_TRANS.SELLER_ID,br.user_slctd_id,item_cndtn,item_cndtn_2,
+		DW_CHECKOUT_TRANS.SITE_ID,
+		DW_CHECKOUT_TRANS.CART_SRVC_ID,
+		DW_CHECKOUT_TRANS.GMV_DT,buyer_id,sum(quantity) as purchases,
+		MAX(CASE WHEN DW_CHECKOUT_TRANS.LSTG_CURNCY_ID = DW_USERS_INFO.BLNG_CURNCY_ID THEN DW_CHECKOUT_TRANS.REFUND_AMT
+			ELSE ((DW_CHECKOUT_TRANS.REFUND_AMT * DW_CHECKOUT_TRANS.LSTG_CURNCY_EXCHNG_RATE) / DW_DAILY_EXCHANGE_RATES.exchng_rate)
+			END) as REFUND_AMOUNT_BILLING_CURRENCY,
+		MAX(cast(DW_CHECKOUT_TRANS.refund_amt * DW_CHECKOUT_TRANS.LSTG_CURNCY_EXCHNG_RATE as DECIMAL (18,2))) as Refund_Amount_USD,
+		SUM(DW_CHECKOUT_TRANS.GMV_SPOT_USD) GMV_SPOT_USD,
+		SUM(DW_CHECKOUT_TRANS.GMV_LC_AMT) GMV_LC_AMT,
+		SUM(CASE WHEN DW_CHECKOUT_TRANS.LSTG_CURNCY_ID = DW_USERS_INFO.BLNG_CURNCY_ID THEN GMV_LC_AMT
+			ELSE (DW_CHECKOUT_TRANS.GMV_SPOT_USD/DW_DAILY_EXCHANGE_RATES.exchng_rate)
+			END) as GMV_in_blng_CURNCY
+	   
+	FROM ACCESS_VIEWS.DW_CHECKOUT_TRANS
+		
+    LEFT JOIN ACCESS_VIEWS.DW_USERS_INFO
+	ON
+		DW_CHECKOUT_TRANS.SELLER_ID = DW_USERS_INFO.USER_ID
+        inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table br 
+        on dw_checkout_trans.item_id=br.item_id          
+        inner join ACCESS_VIEWS.dw_cal_dt cal 
+        on cal.cal_dt=dw_checkout_trans.gmv_dt
+	
+    LEFT JOIN ACCESS_VIEWS.DW_DAILY_EXCHANGE_RATES
+	ON 
+		DW_CHECKOUT_TRANS.GMV_DT = DW_DAILY_EXCHANGE_RATES.day_of_trans
+		AND	DW_DAILY_EXCHANGE_RATES.curncy_id = DW_USERS_INFO.BLNG_CURNCY_ID
+            
+	WHERE
+		1=1
+        AND DW_CHECKOUT_TRANS.site_id in (77)
+		AND LOWER(DW_CHECKOUT_TRANS.rprtd_wacko_yn) = 'n'
+		AND DW_CHECKOUT_TRANS.sale_type in (1,2,7,8,9,13)
+		AND DW_CHECKOUT_TRANS.CHECKOUT_STATUS NOT IN (1,3)
+		AND DW_CHECKOUT_TRANS.GMV_DT between "2023-09-01" and "2024-08-31"
+		GROUP BY 1,2,3,4,5,6,7,8
+)
+GROUP BY 1,2,3,4,5)
+group by 1,2;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_pt purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_pt USING PARQUET AS
+select	
+("2022-09-01"||' to '||"2023-08-31") time_period2, 
+user_slctd_id,	   	
+count(distinct buyer_id) as buyers,
+sum(purchases) as purchases,
+ifnull(sum(gmv_plan_bc)/sum(purchases), 0) as ASP,
+
+sum(gmv_plan_bc) as gmv,
+sum(gross_gmv_plan_bc) as gross_gmv,
+
+sum(case when item_cndtn = 'NEW' then (gmv_plan_bc) else 0 end) as new_item_gmv,
+sum(case when item_cndtn = 'REFURBISHED' then (gmv_plan_bc) else 0 end) as refurbished_item_gmv,
+sum(case when item_cndtn = 'USED' then (gmv_plan_bc) else 0 end) as used_item_gmv,
+
+sum(case when item_cndtn_2 = 'New' then (gmv_plan_bc) else 0 end) as new_new_gmv,
+sum(case when item_cndtn_2 = 'New other (see details)' then (gmv_plan_bc) else 0 end) as new_other_gmv,
+sum(case when item_cndtn_2 = 'New with defects' then (gmv_plan_bc) else 0 end) as new_defects_gmv,
+
+sum(case when item_cndtn_2 = 'Certified - Refurbished' then (gmv_plan_bc) else 0 end) as refurbished_certified_gmv,
+sum(case when item_cndtn_2 = 'Excellent - Refurbished' then (gmv_plan_bc) else 0 end) as refurbished_excellent_gmv,
+sum(case when item_cndtn_2 = 'Very Good - Refurbished' then (gmv_plan_bc) else 0 end) as refurbished_verygood_gmv,
+sum(case when item_cndtn_2 = 'Good - Refurbished' then (gmv_plan_bc) else 0 end) as refurbished_good_gmv,
+sum(case when item_cndtn_2 = 'Seller refurbished' then (gmv_plan_bc) else 0 end) as refurbished_seller_gmv,
+
+sum(case when item_cndtn_2 = 'Like new' then (gmv_plan_bc) else 0 end) as used_likenew_gmv,
+sum(case when item_cndtn_2 = 'Used' then (gmv_plan_bc) else 0 end) as used_used_gmv,
+sum(case when item_cndtn_2 = 'Very good' then (gmv_plan_bc) else 0 end) as used_verygood_gmv,
+sum(case when item_cndtn_2 = 'Good' then (gmv_plan_bc) else 0 end) as used_good_gmv,
+sum(case when item_cndtn_2 = 'Acceptable' then (gmv_plan_bc) else 0 end) as used_acceptable_gmv,
+sum(case when item_cndtn_2 = 'For parts or not working' then (gmv_plan_bc) else 0 end) as used_forparts_gmv
+
+from (
+
+SELECT 
+	seller_id,
+    user_slctd_id,
+    item_cndtn,
+    item_cndtn_2,
+    buyer_id,
+    sum(purchases) as purchases,
+	ROUND(SUM(GMV_SPOT_USD - Refund_Amount_USD), 2) AS gmv_plan_usd,
+	ROUND(SUM(GMV_in_blng_CURNCY - REFUND_AMOUNT_BILLING_CURRENCY), 2) AS gmv_plan_bc,
+	ROUND(SUM(GMV_in_blng_CURNCY), 2) AS gross_gmv_plan_bc
+    
+FROM (
+	SELECT /*+ MERGE(br) */
+		DW_CHECKOUT_TRANS.SELLER_ID,br.user_slctd_id,item_cndtn,item_cndtn_2,
+		DW_CHECKOUT_TRANS.SITE_ID,
+		DW_CHECKOUT_TRANS.CART_SRVC_ID,
+		DW_CHECKOUT_TRANS.GMV_DT,buyer_id,sum(quantity) as purchases,
+		MAX(CASE WHEN DW_CHECKOUT_TRANS.LSTG_CURNCY_ID = DW_USERS_INFO.BLNG_CURNCY_ID THEN DW_CHECKOUT_TRANS.REFUND_AMT
+			ELSE ((DW_CHECKOUT_TRANS.REFUND_AMT * DW_CHECKOUT_TRANS.LSTG_CURNCY_EXCHNG_RATE) / DW_DAILY_EXCHANGE_RATES.exchng_rate)
+			END) as REFUND_AMOUNT_BILLING_CURRENCY,
+		MAX(cast(DW_CHECKOUT_TRANS.refund_amt * DW_CHECKOUT_TRANS.LSTG_CURNCY_EXCHNG_RATE as DECIMAL (18,2))) as Refund_Amount_USD,
+		SUM(DW_CHECKOUT_TRANS.GMV_SPOT_USD) GMV_SPOT_USD,
+		SUM(DW_CHECKOUT_TRANS.GMV_LC_AMT) GMV_LC_AMT,
+		SUM(CASE WHEN DW_CHECKOUT_TRANS.LSTG_CURNCY_ID = DW_USERS_INFO.BLNG_CURNCY_ID THEN GMV_LC_AMT
+			ELSE (DW_CHECKOUT_TRANS.GMV_SPOT_USD/DW_DAILY_EXCHANGE_RATES.exchng_rate)
+			END) as GMV_in_blng_CURNCY
+	   
+	FROM ACCESS_VIEWS.DW_CHECKOUT_TRANS
+		
+    LEFT JOIN ACCESS_VIEWS.DW_USERS_INFO
+	ON
+		DW_CHECKOUT_TRANS.SELLER_ID = DW_USERS_INFO.USER_ID
+        inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table br 
+        on dw_checkout_trans.item_id=br.item_id          
+        inner join ACCESS_VIEWS.dw_cal_dt cal 
+        on cal.cal_dt=dw_checkout_trans.gmv_dt
+	
+    LEFT JOIN ACCESS_VIEWS.DW_DAILY_EXCHANGE_RATES
+	ON 
+		DW_CHECKOUT_TRANS.GMV_DT = DW_DAILY_EXCHANGE_RATES.day_of_trans
+		AND	DW_DAILY_EXCHANGE_RATES.curncy_id = DW_USERS_INFO.BLNG_CURNCY_ID
+            
+	WHERE
+		1=1
+        AND DW_CHECKOUT_TRANS.site_id in (77)
+		AND LOWER(DW_CHECKOUT_TRANS.rprtd_wacko_yn) = 'n'
+		AND DW_CHECKOUT_TRANS.sale_type in (1,2,7,8,9,13)
+		AND DW_CHECKOUT_TRANS.CHECKOUT_STATUS NOT IN (1,3)
+		AND DW_CHECKOUT_TRANS.GMV_DT between "2022-09-01" and "2023-08-31"
+		GROUP BY 1,2,3,4,5,6,7,8
+)
+GROUP BY 1,2,3,4,5)
+group by 1,2;
+    
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_fvf_metric_seller_ct purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_fvf_metric_seller_ct USING PARQUET AS
+SELECT
+("2023-09-01"||' to '||"2024-08-31") time_period
+,SUM(case when actn_code_type_desc1 like 'Final%' and lower(actn_code_desc) not like '%credit%' then (-1*a.amt_blng_curncy) End) as curr_gross_fvf
+,SUM(case when actn_code_type_desc1 like 'Final%' then (-1*a.amt_blng_curncy) End) as curr_net_fvf
+
+FROM ACCESS_VIEWS.DW_LSTG_ITEM l
+
+INNER JOIN ACCESS_VIEWS.DW_ACCOUNTS_ALL AS a
+ON l.ITEM_ID = a.ITEM_ID AND l.SLR_ID = a.USER_ID
+
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table br 
+on l.item_id=br.item_id 
+
+join ACCESS_VIEWS.DW_ACTION_CODES ac
+on a.actn_code = ac.actn_code
+
+WHERE a.ACCT_TRANS_DT between "2023-09-01" and "2024-08-31"
+and a.item_site_id in (77)
+and trim(upper(a.wacko_yn)) = 'N'
+group by 1;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_fvf_metric_seller_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_fvf_metric_seller_pt purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_fvf_metric_seller_pt USING PARQUET AS
+SELECT
+("2022-09-01"||' to '||"2023-08-31") time_period2
+,SUM(case when actn_code_type_desc1 like 'Final%' and lower(actn_code_desc) not like '%credit%' then (-1*a.amt_blng_curncy) End) as prev_gross_fvf
+,SUM(case when actn_code_type_desc1 like 'Final%' then (-1*a.amt_blng_curncy) End) as prev_net_fvf
+FROM ACCESS_VIEWS.DW_LSTG_ITEM l
+INNER JOIN ACCESS_VIEWS.DW_ACCOUNTS_ALL AS a
+    ON l.ITEM_ID = a.ITEM_ID AND l.SLR_ID = a.USER_ID
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table br 
+on l.item_id=br.item_id 
+join ACCESS_VIEWS.DW_ACTION_CODES ac
+    on a.actn_code = ac.actn_code
+WHERE a.ACCT_TRANS_DT between "2022-09-01" and "2023-08-31"  
+and a.item_site_id in (77)
+and trim(upper(a.wacko_yn)) = 'N'
+group by 1;
+
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_fvf_metric_seller_pt COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_subsidy_gmv_metric_seller_ct purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_subsidy_gmv_metric_seller_ct USING PARQUET AS
+select /*+ MERGE(br) */
+("2023-09-01"||' to '||"2024-08-31") time_period
+,sum(subsidy) as sub_amt_ct
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table br 
+left join p_csi_tbs_t.na_deals_txns b
+on br.item_id=b.item_id
+and deals_report_bucket='SUB'
+and b.CREATED_DT between "2023-09-01" and "2024-08-31"
+group by 1
+
+UNION ALL
+
+select 
+("2023-09-01"||' to '||"2024-08-31") time_period
+, 0 as sub_amt_ct
+WHERE NOT EXISTS (
+select 1
+FROM p_csi_tbs_t.na_deals_txns
+LIMIT 1
+);
+
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_subsidy_gmv_metric_seller_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_subsidy_gmv_metric_seller_pt purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_subsidy_gmv_metric_seller_pt USING PARQUET AS
+select /*+ MERGE(br) */
+("2022-09-01"||' to '||"2023-08-31") time_period2
+,sum(subsidy) as sub_amt_pt
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table br 
+left join p_csi_tbs_t.na_deals_txns b
+on br.item_id=b.item_id
+and deals_report_bucket='SUB'
+and b.CREATED_DT between  "2022-09-01" and "2023-08-31" 
+group by 1
+
+UNION ALL
+
+select 
+("2022-09-01"||' to '||"2023-08-31") time_period2
+, 0 as sub_amt_pt
+WHERE NOT EXISTS (
+select 1
+FROM p_csi_tbs_t.na_deals_txns
+LIMIT 1
+);
+
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_subsidy_gmv_metric_seller_pt COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_coupon_amt_metric_seller_ct purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_coupon_amt_metric_seller_ct USING PARQUET AS
+select 
+("2023-09-01"||' to '||"2024-08-31") time_period
+,sum(spend_lc) total_spend_ct ,sum(spend_ebay_lc) ebay_spend_ct ,sum(spend_seller_lc) seller_coupon_spend_ct from p_planning_v.open_coupon_transaction_level_final
+where 1=1
+AND SELLER_ID in (18116485)
+AND spend_seller_lc > 0
+AND REDMD_DATE between "2023-09-01" and "2024-08-31"
+AND COUNTRY_CPN = case when "77" = '101' then 'IT'
+                        when "77" = '3' then 'UK'
+                        when "77" = '71' then 'FR'
+                        when "77" = '77' then 'DE'
+                        when "77" = '15' then 'AU'
+                        when "77" = '0,100' then 'US'
+                        when "77" = '186' then 'ES'
+                        when "77" = '2' then 'CA'
+                        else 'No Data' 
+                        end
+group by 1;
+
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_coupon_amt_metric_seller_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_coupon_amt_metric_seller_pt purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_coupon_amt_metric_seller_pt USING PARQUET AS
+select 
+("2022-09-01"||' to '||"2023-08-31") time_period2
+,sum(spend_lc) total_spend_pt ,sum(spend_ebay_lc) ebay_spend_pt ,sum(spend_seller_lc) seller_coupon_spend_pt from p_planning_v.open_coupon_transaction_level_final
+where 1=1
+AND SELLER_ID in (18116485)
+AND spend_seller_lc > 0
+AND REDMD_DATE between "2022-09-01" and "2023-08-31"
+AND COUNTRY_CPN = case when "77" = '101' then 'IT'
+                        when "77" = '3' then 'UK'
+                        when "77" = '71' then 'FR'
+                        when "77" = '77' then 'DE'
+                        when "77" = '15' then 'AU'
+                        when "77" = '0,100' then 'US'
+                        when "77" = '186' then 'ES'
+                        when "77" = '2' then 'CA'
+                        else 'No Data' 
+                        end
+group by 1;
+
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_coupon_amt_metric_seller_pt COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_PLS_ad_rate_ct purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_PLS_ad_rate_ct USING PARQUET AS
+select
+("2023-09-01"||' to '||"2024-08-31") as flag
+,user_slctd_id
+,avg(LSTG_BID_PCT)/100 as pls_adrate
+,avg(SOLD_BID_PCT)/100 as pls_sold_adrate
+
+from access_views.pl_item_mtrc_sd perf_metric
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table x
+on x.item_id = 	perf_metric.item_id
+where item_site_id in (77) 
+and to_date(DT,'yyyyMMdd') BETWEEN  "2023-09-01" and "2024-08-31" 
+group by 1,2;
+
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_PLS_ad_rate_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_PLS_ad_rate_pt purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_PLS_ad_rate_pt USING PARQUET AS
+select
+("2022-09-01"||' to '||"2023-08-31") as flag
+,user_slctd_id 
+,avg(LSTG_BID_PCT)/100 as pls_adrate
+,avg(SOLD_BID_PCT)/100 as pls_sold_adrate
+
+from access_views.pl_item_mtrc_sd perf_metric
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table x
+on x.item_id = 	perf_metric.item_id
+where item_site_id in (77) 
+and to_date(DT,'yyyyMMdd') BETWEEN  "2022-09-01" and "2023-08-31" 
+group by 1,2;  
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_PLS_ad_rate_pt COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_dual_attribution_trans_ct purge;
+CREATE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_dual_attribution_trans_ct USING PARQUET AS
+SELECT 
+    trans_id, 
+    COUNT(DISTINCT event_type_txt) AS event_type_count
+FROM ACCESS_VIEWS.PL_ORG_ADS_SALES_FACT k
+INNER JOIN p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+ON st.item_id = k.item_id
+WHERE event_type_txt IN ('PLS', 'PLPS')
+AND FROM_UNIXTIME(EVENT_TM / 1000, 'yyyy-MM-dd') BETWEEN "2023-09-01" and "2024-08-31"
+GROUP BY trans_id
+HAVING COUNT(DISTINCT event_type_txt) > 1;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_dual_attribution_trans_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_adfee_ct purge;
+CREATE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_adfee_ct USING PARQUET AS
+SELECT 
+    st.user_slctd_id,
+    SUM(CASE WHEN k.event_type_txt = 'PLS' THEN k.item_sold_qty ELSE 0 END) AS pls_si,
+    SUM(CASE WHEN k.event_type_txt = 'PLPS' AND t.trans_id IS NULL THEN k.item_sold_qty ELSE 0 END) AS pla_si,
+    SUM(CASE WHEN k.event_type_txt = 'PLPS' THEN k.item_sold_qty ELSE 0 END) AS pla_si_notdeduped,
+    SUM(CASE WHEN k.event_type_txt = 'SFAS' THEN k.item_sold_qty ELSE 0 END) AS sfa_si,
+    
+    SUM(CASE WHEN k.event_type_txt = 'PLS' THEN k.sale_slr_blng_curncy_amt ELSE 0 END) AS pls_gmv,
+    SUM(CASE WHEN k.event_type_txt = 'PLPS' AND t.trans_id IS NULL THEN k.sale_slr_blng_curncy_amt ELSE 0 END) AS pla_gmv,
+    SUM(CASE WHEN k.event_type_txt = 'PLPS' THEN k.sale_slr_blng_curncy_amt ELSE 0 END) AS pla_gmv_notdeduped,
+    SUM(CASE WHEN k.event_type_txt = 'SFAS' THEN k.sale_slr_blng_curncy_amt ELSE 0 END) AS sfa_gmv,
+    
+	sum(case when k.event_type_txt= 'PLS' then k.ad_fee_slr_blng_curncy_amt else 0 end) as pls_ad_fee,
+	sum(case when k.event_type_txt= 'PLPCPC' then k.ad_fee_slr_blng_curncy_amt else 0 end) as pla_ad_fee,
+    sum(case when k.event_type_txt= 'SFACPC' then k.ad_fee_slr_blng_curncy_amt else 0 end) as sfa_ad_fee
+    
+FROM ACCESS_VIEWS.PL_ORG_ADS_SALES_FACT k
+INNER JOIN p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+ON st.item_id = k.item_id
+LEFT JOIN p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_dual_attribution_trans_ct t 
+ON k.trans_id = t.trans_id
+WHERE k.event_type_txt IN ('PLS', 'PLPS', 'PLPCPC', 'SFAS', 'SFACPC')
+AND FROM_UNIXTIME(k.EVENT_TM / 1000, 'yyyy-MM-dd') BETWEEN "2023-09-01" and "2024-08-31"
+GROUP BY st.user_slctd_id;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_adfee_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_dual_attribution_trans_pt purge;
+CREATE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_dual_attribution_trans_pt USING PARQUET AS
+SELECT 
+    trans_id, 
+    COUNT(DISTINCT event_type_txt) AS event_type_count
+FROM ACCESS_VIEWS.PL_ORG_ADS_SALES_FACT k
+INNER JOIN p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+ON st.item_id = k.item_id
+WHERE event_type_txt IN ('PLS', 'PLPS')
+AND FROM_UNIXTIME(EVENT_TM / 1000, 'yyyy-MM-dd') BETWEEN "2022-09-01" and "2023-08-31"
+GROUP BY trans_id
+HAVING COUNT(DISTINCT event_type_txt) > 1;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_dual_attribution_trans_pt COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_adfee_pt purge;
+CREATE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_adfee_pt USING PARQUET AS
+SELECT 
+    st.user_slctd_id,
+    SUM(CASE WHEN k.event_type_txt = 'PLS' THEN k.item_sold_qty ELSE 0 END) AS pls_si,
+    SUM(CASE WHEN k.event_type_txt = 'PLPS' AND t.trans_id IS NULL THEN k.item_sold_qty ELSE 0 END) AS pla_si,
+    SUM(CASE WHEN k.event_type_txt = 'PLPS' THEN k.item_sold_qty ELSE 0 END) AS pla_si_notdeduped,
+    SUM(CASE WHEN k.event_type_txt = 'SFAS' THEN k.item_sold_qty ELSE 0 END) AS sfa_si,
+    
+    SUM(CASE WHEN k.event_type_txt = 'PLS' THEN k.sale_slr_blng_curncy_amt ELSE 0 END) AS pls_gmv,
+    SUM(CASE WHEN k.event_type_txt = 'PLPS' AND t.trans_id IS NULL THEN k.sale_slr_blng_curncy_amt ELSE 0 END) AS pla_gmv,
+    SUM(CASE WHEN k.event_type_txt = 'PLPS' THEN k.sale_slr_blng_curncy_amt ELSE 0 END) AS pla_gmv_notdeduped,
+    SUM(CASE WHEN k.event_type_txt = 'SFAS' THEN k.sale_slr_blng_curncy_amt ELSE 0 END) AS sfa_gmv,
+    
+	sum(case when k.event_type_txt= 'PLS' then k.ad_fee_slr_blng_curncy_amt else 0 end) as pls_ad_fee,
+	sum(case when k.event_type_txt= 'PLPCPC' then k.ad_fee_slr_blng_curncy_amt else 0 end) as pla_ad_fee,
+    sum(case when k.event_type_txt= 'SFACPC' then k.ad_fee_slr_blng_curncy_amt else 0 end) as sfa_ad_fee
+    
+FROM ACCESS_VIEWS.PL_ORG_ADS_SALES_FACT k
+INNER JOIN p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+ON st.item_id = k.item_id
+LEFT JOIN p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_dual_attribution_trans_pt t 
+ON k.trans_id = t.trans_id
+WHERE k.event_type_txt IN ('PLS', 'PLPS', 'PLPCPC', 'SFAS', 'SFACPC')
+AND FROM_UNIXTIME(k.EVENT_TM / 1000, 'yyyy-MM-dd') BETWEEN "2022-09-01" and "2023-08-31"
+GROUP BY st.user_slctd_id;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_adfee_pt COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+select 'sales_metrics' as insights_type
+,"Seller" as insights_level
+,"atp-autoteile" as insights_level_value
+,a.time_period as date_range
+,b.time_period2 as date_range_comp
+,("77") as site_id
+
+,COALESCE(a.buyers, 0) as buyers
+
+,COALESCE(a.GMV, 0) as curr_gmv
+,COALESCE(b.GMV, 0) as prev_gmv
+,COALESCE(((a.GMV-b.GMV)/b.GMV), 0) as gmv_growth
+
+,COALESCE(a.gross_gmv, 0) as curr_gross_gmv
+,COALESCE(b.gross_gmv, 0) as prev_gross_gmv
+,COALESCE(((a.gross_gmv - b.gross_gmv) / b.gross_gmv), 0) as gross_gmv_growth
+
+,COALESCE(m.pls_gmv, 0) as curr_pls_gmv 
+,COALESCE(n.pls_gmv, 0) as prev_pls_gmv
+,COALESCE(((curr_pls_gmv - prev_pls_gmv) / NULLIF(prev_pls_gmv, 0)), 0) AS change_pls_gmv
+
+,COALESCE(m.pla_gmv_notdeduped, 0) as curr_pla_gmv 
+,COALESCE(n.pla_gmv_notdeduped, 0) as prev_pla_gmv
+,COALESCE(((curr_pla_gmv - prev_pla_gmv) / NULLIF(prev_pla_gmv, 0)), 0) AS change_pla_gmv
+
+,COALESCE(m.pls_gmv, 0) + COALESCE(m.pla_gmv, 0) as curr_total_pl_gmv
+,COALESCE(n.pls_gmv, 0) + COALESCE(n.pla_gmv, 0) as prev_total_pl_gmv
+,COALESCE(((curr_total_pl_gmv- prev_total_adspend) / NULLIF(prev_total_adspend, 0)), 0) AS change_total_pl_gmv
+
+,COALESCE(curr_gross_gmv - curr_total_pl_gmv, 0) as curr_organic_gmv
+,COALESCE(prev_gross_gmv - prev_total_pl_gmv, 0) as prev_organic_gmv
+,COALESCE(((curr_organic_gmv - prev_organic_gmv) / NULLIF(prev_organic_gmv, 0)), 0) AS change_organic_gmv
+
+,COALESCE(m.pls_ad_fee, 0) as curr_pls_ad_fee 
+,COALESCE(n.pls_ad_fee, 0) as prev_pls_ad_fee
+,COALESCE(((curr_pls_ad_fee - prev_pls_ad_fee) / NULLIF(prev_pls_ad_fee, 0)), 0) AS change_pls_ad_fee
+
+,COALESCE(m.pla_ad_fee, 0) as curr_pla_ad_fee 
+,COALESCE(n.pla_ad_fee, 0) as prev_pla_ad_fee
+,COALESCE(((curr_pla_ad_fee - prev_pla_ad_fee) / NULLIF(prev_pla_ad_fee, 0)), 0) AS change_pla_ad_fee
+
+,COALESCE(m.pls_ad_fee, 0) + COALESCE(m.pla_ad_fee, 0) + COALESCE(m.sfa_ad_fee, 0) as curr_total_adspend 
+,COALESCE(n.pls_ad_fee, 0) + COALESCE(n.pla_ad_fee, 0) + COALESCE(n.sfa_ad_fee, 0) as prev_total_adspend
+,COALESCE(((curr_total_adspend - prev_total_adspend) / NULLIF(prev_total_adspend, 0)), 0) AS change_total_adspend
+
+,COALESCE((a.purchases), 0) as purchases
+,COALESCE(((a.purchases-b.purchases)/b.purchases), 0) as purchase_growth
+
+,COALESCE((c.curr_net_fvf),0) as curr_net_fvf
+,COALESCE((d.prev_net_fvf),0) as prev_net_fvf 
+,((curr_net_fvf - prev_net_fvf)/prev_net_fvf) as change_net_fvf
+
+,(curr_net_fvf/curr_gmv) as curr_take_rate
+,(prev_net_fvf/prev_gmv) as prev_take_rate
+,((curr_take_rate - prev_take_rate)/prev_take_rate) as change_take_rate
+
+,COALESCE((g.sub_amt_ct),0) as curr_total_subsidy 
+,COALESCE((h.sub_amt_pt),0) as prev_total_subsidy 
+,((curr_total_subsidy - prev_total_subsidy)/prev_total_subsidy) as change_total_subsidy
+
+,COALESCE((e.ebay_spend_ct),0) as curr_total_ebay_coupon 
+,COALESCE((f.ebay_spend_pt),0) as prev_total_ebay_coupon 
+,((curr_total_ebay_coupon - prev_total_ebay_coupon)/prev_total_ebay_coupon) as change_total_ebay_coupon
+
+,COALESCE((e.total_spend_ct),0) as curr_total_coupon_spend 
+,COALESCE((f.total_spend_pt),0) as prev_total_coupon_spend 
+,((curr_total_coupon_spend - prev_total_coupon_spend)/prev_total_coupon_spend) as change_total_coupon_spend
+
+,COALESCE((e.seller_coupon_spend_ct),0) as curr_total_slr_coupon 
+,COALESCE((f.seller_coupon_spend_pt),0) as prev_total_slr_coupon 
+,((curr_total_slr_coupon - prev_total_slr_coupon)/prev_total_slr_coupon) as change_total_slr_coupon
+
+,COALESCE((i.pls_adrate),0) as curr_pls_set_adrate
+,COALESCE((j.pls_adrate),0) as prev_pls_set_adrate
+,((curr_pls_set_adrate - prev_pls_set_adrate)/prev_pls_set_adrate) as change_pls_set_adrate
+
+,COALESCE((i.pls_sold_adrate),0) as curr_pls_sold_adrate
+,COALESCE((j.pls_sold_adrate),0) as prev_pls_sold_adrate
+,((curr_pls_sold_adrate - prev_pls_sold_adrate)/prev_pls_sold_adrate) as change_pls_sold_adrate
+
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_ct a
+
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_pt b
+on 1=1
+
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_fvf_metric_seller_ct c
+on 1=1
+
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_fvf_metric_seller_pt d
+on 1=1
+
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_coupon_amt_metric_seller_ct e
+on 1=1 
+
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_coupon_amt_metric_seller_pt f
+on 1=1 
+
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_subsidy_gmv_metric_seller_ct g
+on 1=1
+
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_subsidy_gmv_metric_seller_pt h
+on 1=1
+
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_PLS_ad_rate_ct i
+on 1=1
+
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_PLS_ad_rate_pt j
+on 1=1
+
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_adfee_ct m
+on 1=1
+
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_adfee_pt n
+on 1=1;
+
+
+
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_item_cndtn_gmv purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_item_cndtn_gmv USING PARQUET AS
+select 'OVERALL' as item_cndtn
+,COALESCE(a.gmv, 0) as curr_gmv
+,COALESCE(b.gmv, 0) as prev_gmv
+,COALESCE(((a.gmv-b.gmv)/b.gmv), 0) as gmv_growth
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_ct a
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_pt b
+on 1=1
+
+union all
+
+select 'NEW - Total' as item_cndtn
+,COALESCE(a.new_item_gmv, 0) as curr_gmv
+,COALESCE(b.new_item_gmv, 0) as prev_gmv
+,COALESCE(((a.new_item_gmv-b.new_item_gmv)/b.new_item_gmv), 0) as gmv_growth
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_ct a
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_pt b
+on 1=1
+
+union all
+
+select 'NEW - new' as item_cndtn
+,COALESCE(a.new_new_gmv, 0) as curr_gmv
+,COALESCE(b.new_new_gmv, 0) as prev_gmv
+,COALESCE(((a.new_new_gmv-b.new_new_gmv)/b.new_new_gmv), 0) as gmv_growth
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_ct a
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_pt b
+on 1=1
+
+union all
+
+select 'NEW - other' as item_cndtn
+,COALESCE(a.new_other_gmv, 0) as curr_gmv
+,COALESCE(b.new_other_gmv, 0) as prev_gmv
+,COALESCE(((a.new_other_gmv-b.new_other_gmv)/b.new_other_gmv), 0) as gmv_growth
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_ct a
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_pt b
+on 1=1
+
+union all
+
+select 'NEW - defects' as item_cndtn
+,COALESCE(a.new_defects_gmv, 0) as curr_gmv
+,COALESCE(b.new_defects_gmv, 0) as prev_gmv
+,COALESCE(((a.new_defects_gmv-b.new_defects_gmv)/b.new_defects_gmv), 0) as gmv_growth
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_ct a
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_pt b
+on 1=1
+
+union all
+
+select 'REFURBISHED - Total' as item_cndtn
+,COALESCE(a.refurbished_item_gmv, 0) as curr_gmv
+,COALESCE(b.refurbished_item_gmv, 0) as prev_gmv
+,COALESCE(((a.refurbished_item_gmv-b.refurbished_item_gmv)/b.refurbished_item_gmv), 0) as gmv_growth
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_ct a
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_pt b
+on 1=1
+
+union all
+
+select 'REFURBISHED - certified' as item_cndtn
+,COALESCE(a.refurbished_certified_gmv, 0) as curr_gmv
+,COALESCE(b.refurbished_certified_gmv, 0) as prev_gmv
+,COALESCE(((a.refurbished_certified_gmv-b.refurbished_certified_gmv)/b.refurbished_certified_gmv), 0) as gmv_growth
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_ct a
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_pt b
+on 1=1
+
+union all
+
+select 'REFURBISHED - excellent' as item_cndtn
+,COALESCE(a.refurbished_excellent_gmv, 0) as curr_gmv
+,COALESCE(b.refurbished_excellent_gmv, 0) as prev_gmv
+,COALESCE(((a.refurbished_excellent_gmv-b.refurbished_excellent_gmv)/b.refurbished_excellent_gmv), 0) as gmv_growth
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_ct a
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_pt b
+on 1=1
+
+union all
+
+select 'REFURBISHED - very good' as item_cndtn
+,COALESCE(a.refurbished_verygood_gmv, 0) as curr_gmv
+,COALESCE(b.refurbished_verygood_gmv, 0) as prev_gmv
+,COALESCE(((a.refurbished_verygood_gmv-b.refurbished_verygood_gmv)/b.refurbished_verygood_gmv), 0) as gmv_growth
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_ct a
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_pt b
+on 1=1
+
+union all
+
+select 'REFURBISHED - good' as item_cndtn
+,COALESCE(a.refurbished_good_gmv, 0) as curr_gmv
+,COALESCE(b.refurbished_good_gmv, 0) as prev_gmv
+,COALESCE(((a.refurbished_good_gmv-b.refurbished_good_gmv)/b.refurbished_good_gmv), 0) as gmv_growth
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_ct a
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_pt b
+on 1=1
+
+union all
+
+select 'REFURBISHED - seller' as item_cndtn
+,COALESCE(a.refurbished_seller_gmv, 0) as curr_gmv
+,COALESCE(b.refurbished_seller_gmv, 0) as prev_gmv
+,COALESCE(((a.refurbished_seller_gmv-b.refurbished_seller_gmv)/b.refurbished_seller_gmv), 0) as gmv_growth
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_ct a
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_pt b
+on 1=1
+
+union all
+
+select 'USED - Total' as item_cndtn
+,COALESCE(a.used_item_gmv, 0) as curr_gmv
+,COALESCE(b.used_item_gmv, 0) as prev_gmv
+,COALESCE(((a.used_item_gmv-b.used_item_gmv)/b.used_item_gmv), 0) as gmv_growth
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_ct a
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_pt b
+on 1=1
+
+union all
+
+select 'USED - like new' as item_cndtn
+,COALESCE(a.used_likenew_gmv, 0) as curr_gmv
+,COALESCE(b.used_likenew_gmv, 0) as prev_gmv
+,COALESCE(((a.used_likenew_gmv-b.used_likenew_gmv)/b.used_likenew_gmv), 0) as gmv_growth
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_ct a
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_pt b
+on 1=1
+
+union all
+
+select 'USED - used' as item_cndtn
+,COALESCE(a.used_used_gmv, 0) as curr_gmv
+,COALESCE(b.used_used_gmv, 0) as prev_gmv
+,COALESCE(((a.used_used_gmv-b.used_used_gmv)/b.used_used_gmv), 0) as gmv_growth
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_ct a
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_pt b
+on 1=1
+
+union all
+
+select 'USED - very good' as item_cndtn
+,COALESCE(a.used_verygood_gmv, 0) as curr_gmv
+,COALESCE(b.used_verygood_gmv, 0) as prev_gmv
+,COALESCE(((a.used_verygood_gmv-b.used_verygood_gmv)/b.used_verygood_gmv), 0) as gmv_growth
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_ct a
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_pt b
+on 1=1
+
+union all
+
+select 'USED - good' as item_cndtn
+,COALESCE(a.used_good_gmv, 0) as curr_gmv
+,COALESCE(b.used_good_gmv, 0) as prev_gmv
+,COALESCE(((a.used_good_gmv-b.used_good_gmv)/b.used_good_gmv), 0) as gmv_growth
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_ct a
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_pt b
+on 1=1
+
+union all
+
+select 'USED - acceptable' as item_cndtn
+,COALESCE(a.used_acceptable_gmv, 0) as curr_gmv
+,COALESCE(b.used_acceptable_gmv, 0) as prev_gmv
+,COALESCE(((a.used_acceptable_gmv-b.used_acceptable_gmv)/b.used_acceptable_gmv), 0) as gmv_growth
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_ct a
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_pt b
+on 1=1
+
+union all
+
+select 'USED - for parts or not working' as item_cndtn
+,COALESCE(a.used_forparts_gmv, 0) as curr_gmv
+,COALESCE(b.used_forparts_gmv, 0) as prev_gmv
+,COALESCE(((a.used_forparts_gmv-b.used_forparts_gmv)/b.used_forparts_gmv), 0) as gmv_growth
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_ct a
+full outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_pt b
+on 1=1
+;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_item_cndtn_gmv COMPUTE STATISTICS FOR ALL COLUMNS;
+
+select 'item_condition_gmv' as insights_type
+,"Seller" as insights_level
+,"atp-autoteile" as insights_level_value
+,item_cndtn
+,curr_gmv
+,gmv_growth
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_item_cndtn_gmv
+;
+
+
+ 	  
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_pl_org_seller_ct purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_pl_org_seller_ct USING PARQUET AS
+select  
+flag, 
+user_slctd_id, 
+
+SUM(total_imp_cnt) AS total_imprsns_curr,
+SUM(CASE WHEN event_type_cd = 'PL' THEN total_imp_cnt ELSE 0 END) AS pl_imps_curr,
+SUM(CASE WHEN event_type_cd = 'PLP' THEN total_imp_cnt ELSE 0 END) AS pla_imps_curr,
+SUM(CASE WHEN event_type_cd = 'Organic' THEN total_imp_cnt ELSE 0 END) AS organic_impressions_curr,
+
+SUM(total_click_cnt) AS total_clicks_curr,
+SUM(CASE WHEN event_type_cd = 'PL' THEN total_click_cnt ELSE 0 END) AS pl_clicks_curr,
+SUM(CASE WHEN event_type_cd = 'PLP' THEN total_click_cnt ELSE 0 END) AS pla_clicks_curr,
+SUM(CASE WHEN event_type_cd = 'Organic' THEN total_click_cnt ELSE 0 END) AS organic_clicks_curr
+
+from (
+select
+("2023-09-01"||' to '||"2024-08-31") flag,
+user_slctd_id, 
+prd_id,
+cal_dt,
+month_of_year_id,
+year_id,
+bpe.event_type_cd,
+bpe.item_id,
+bpe.total_imp_cnt,
+bpe.srp_top20_slot_imp_cnt,
+bpe.srp_rest_slot_imp_cnt,
+bpe.merch_imp_cnt,
+bpe.total_click_cnt,
+bpe.ebay_click_cnt,
+bpe.off_ebay_click_cnt
+from bpe_v.pl_org_ads_imp_click_sd bpe 
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table items 
+on items.item_id=bpe.item_id
+inner join ACCESS_VIEWS.dw_cal_dt cal 
+on from_unixtime(unix_timestamp(dt,'yyyyMMdd'),'yyyy-MM-dd')=cal.cal_dt
+where from_unixtime(unix_timestamp(dt,'yyyyMMdd'),'yyyy-MM-dd') between "2023-09-01" and "2024-08-31"
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
+) base
+group by 1,2;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_pl_org_seller_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_total_trx_metrics_ovl_ct purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_total_trx_metrics_ovl_ct USING PARQUET AS
+select /*+ MERGE(st) */
+("2023-09-01"||' to '||"2024-08-31") flag,
+st.user_slctd_id,   
+sum(ck.core_item_cnt) as total_si   	   
+
+from ACCESS_VIEWS.dw_checkout_trans ck
+inner join ACCESS_VIEWS.dw_cal_dt cal 
+on cal.cal_dt = ck.gmv_dt
+
+inner join ACCESS_VIEWS.dw_category_groupings cmp 
+on cmp.leaf_categ_id = ck.leaf_categ_id 
+and cmp.site_id = ck.site_id
+
+inner join ACCESS_VIEWS.dw_lstg_item itm 
+on itm.item_id=ck.item_id
+
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+on ck.item_id=st.item_id		   
+
+where ck.gmv_dt between  "2023-09-01" and "2024-08-31"
+and !ck.sale_type in (10,12,15)
+and !cmp.sap_category_id in (5,7,41,23,-999)
+and lower(ck.rprtd_wacko_yn)=lower('N')
+and ck.site_id in (77)
+and PAID_IND = 1 
+group by 1,2;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_total_trx_metrics_ovl_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_dual_attribution_trans_ovl_ct purge;
+CREATE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_dual_attribution_trans_ovl_ct USING PARQUET AS
+SELECT 
+    trans_id, 
+    COUNT(DISTINCT event_type_txt) AS event_type_count
+FROM ACCESS_VIEWS.PL_ORG_ADS_SALES_FACT k
+INNER JOIN p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+ON st.item_id = k.item_id
+WHERE event_type_txt IN ('PLS', 'PLPS')
+AND FROM_UNIXTIME(EVENT_TM / 1000, 'yyyy-MM-dd') BETWEEN "2023-09-01" and "2024-08-31"
+GROUP BY trans_id
+HAVING COUNT(DISTINCT event_type_txt) > 1;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_dual_attribution_trans_ovl_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_ovl_ct purge;
+CREATE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_ovl_ct USING PARQUET AS
+SELECT 
+    st.user_slctd_id,
+    SUM(CASE WHEN k.event_type_txt = 'PLS' THEN k.item_sold_qty ELSE 0 END) AS pls_si,
+    SUM(CASE WHEN k.event_type_txt = 'PLS' THEN k.sale_slr_blng_curncy_amt ELSE 0 END) AS pls_gmv_bc,
+    SUM(CASE WHEN k.event_type_txt = 'PLPS' AND t.trans_id IS NULL THEN k.item_sold_qty ELSE 0 END) AS pla_si,
+    SUM(CASE WHEN k.event_type_txt = 'PLPS' THEN k.item_sold_qty ELSE 0 END) AS pla_si_notdeduped,
+    SUM(CASE WHEN k.event_type_txt = 'PLPS' AND t.trans_id IS NULL THEN k.sale_slr_blng_curncy_amt ELSE 0 END) AS pla_gmv_bc,
+    SUM(CASE WHEN k.event_type_txt = 'PLPS' THEN k.sale_slr_blng_curncy_amt ELSE 0 END) AS pla_gmv_notdeduped_bc
+FROM ACCESS_VIEWS.PL_ORG_ADS_SALES_FACT k
+INNER JOIN p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+ON st.item_id = k.item_id
+LEFT JOIN p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_dual_attribution_trans_ovl_ct t 
+ON k.trans_id = t.trans_id
+WHERE k.event_type_txt IN ('PLS', 'PLPS')
+AND FROM_UNIXTIME(k.EVENT_TM / 1000, 'yyyy-MM-dd') BETWEEN "2023-09-01" and "2024-08-31"
+GROUP BY st.user_slctd_id;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_ovl_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+
+
+select 'cvr_metrics' as insights_type
+,"Seller" AS insights_level
+,"atp-autoteile" AS insights_level_value
+,"2023-09-01" || ' to ' || "2024-08-31" as date_range
+,("77") as site_id
+
+,case when COALESCE((b.total_si - c.pls_si - c.pla_si), 0) < 0 then 0 else COALESCE((b.total_si - c.pls_si - c.pla_si), 0) end as organic_si
+,case when COALESCE(a.organic_clicks_curr, 0) < 0 then 0 else COALESCE(a.organic_clicks_curr, 0) end as organic_clicks
+
+,COALESCE(c.pls_si, 0) as pls_si
+,COALESCE(a.pl_clicks_curr, 0) as pls_clicks
+
+,COALESCE(c.pla_si_notdeduped, 0) as pla_si
+,COALESCE(a.pla_clicks_curr, 0) as pla_clicks
+
+,COALESCE(b.total_si / a.total_clicks_curr, 0) as curr_overall_cvr
+,COALESCE(organic_si / organic_clicks, 0) as curr_organic_cvr
+,COALESCE(c.pls_si / a.pl_clicks_curr, 0) as curr_pls_cvr 
+,COALESCE(c.pla_si_notdeduped / a.pla_clicks_curr, 0) as curr_pla_cvr
+
+,COALESCE((ROUND(curr_pls_cvr*100, 2) - ROUND(curr_organic_cvr*100, 2)) / ROUND(curr_organic_cvr*100, 2), 0) AS pls_cvr_uplift
+,COALESCE((ROUND(curr_pla_cvr*100, 2) - ROUND(curr_organic_cvr*100, 2)) / ROUND(curr_organic_cvr*100, 2), 0) AS pla_cvr_uplift
+
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_pl_org_seller_ct a
+
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_total_trx_metrics_ovl_ct b
+on a.user_slctd_id=b.user_slctd_id
+
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_ovl_ct c
+on a.user_slctd_id=c.user_slctd_id
+;
+
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_monthly_sales_metrics_seller_ct purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_monthly_sales_metrics_seller_ct USING PARQUET AS 						 
+select
+month_of_year_id, 
+YEAR_ID, 
+prd_id,
+user_slctd_id,
+count(distinct buyer_id) as buyers,
+sum(gmv_plan_bc) as GMV,
+sum(purchases) as purchases
+
+from (
+
+SELECT
+	seller_id,
+	user_slctd_id,
+	month_of_year_id, 
+	YEAR_ID, 
+	prd_id,
+	buyer_id,
+	sum(purchases) as purchases,
+	ROUND(SUM(GMV_SPOT_USD - Refund_Amount_USD), 2) AS gmv_plan_usd,
+	ROUND(SUM(GMV_in_blng_CURNCY - REFUND_AMOUNT_BILLING_CURRENCY), 2) AS gmv_plan_bc
+FROM (
+	SELECT /*+ MERGE(br) */
+		DW_CHECKOUT_TRANS.SELLER_ID,
+        br.user_slctd_id,
+        month_of_year_id, 
+        YEAR_ID, 
+        prd_id,
+		DW_CHECKOUT_TRANS.SITE_ID,
+		DW_CHECKOUT_TRANS.CART_SRVC_ID,
+		DW_CHECKOUT_TRANS.GMV_DT,
+        buyer_id,
+        sum(quantity) as purchases,
+		MAX(CASE
+				WHEN DW_CHECKOUT_TRANS.LSTG_CURNCY_ID = DW_USERS_INFO.BLNG_CURNCY_ID THEN DW_CHECKOUT_TRANS.REFUND_AMT
+				ELSE ((DW_CHECKOUT_TRANS.REFUND_AMT * DW_CHECKOUT_TRANS.LSTG_CURNCY_EXCHNG_RATE) / DW_DAILY_EXCHANGE_RATES.exchng_rate)
+			END) as REFUND_AMOUNT_BILLING_CURRENCY,
+		max(cast(DW_CHECKOUT_TRANS.refund_amt * DW_CHECKOUT_TRANS.LSTG_CURNCY_EXCHNG_RATE as DECIMAL (18,2))) as Refund_Amount_USD,
+		SUM(DW_CHECKOUT_TRANS.GMV_SPOT_USD) GMV_SPOT_USD,
+		SUM(DW_CHECKOUT_TRANS.GMV_LC_AMT) GMV_LC_AMT,
+		SUM(CASE
+				WHEN DW_CHECKOUT_TRANS.LSTG_CURNCY_ID = DW_USERS_INFO.BLNG_CURNCY_ID THEN GMV_LC_AMT
+				ELSE (DW_CHECKOUT_TRANS.GMV_SPOT_USD/DW_DAILY_EXCHANGE_RATES.exchng_rate)
+			END) as GMV_in_blng_CURNCY
+	   
+	FROM ACCESS_VIEWS.DW_CHECKOUT_TRANS
+	
+    LEFT JOIN ACCESS_VIEWS.DW_USERS_INFO
+	ON DW_CHECKOUT_TRANS.SELLER_ID = DW_USERS_INFO.USER_ID
+        
+	inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table br 
+	on dw_checkout_trans.item_id=br.item_id          
+
+	inner join ACCESS_VIEWS.dw_cal_dt cal 
+	on cal.cal_dt=dw_checkout_trans.gmv_dt
+
+	LEFT JOIN ACCESS_VIEWS.DW_DAILY_EXCHANGE_RATES
+	ON DW_CHECKOUT_TRANS.GMV_DT = DW_DAILY_EXCHANGE_RATES.day_of_trans
+	AND	DW_DAILY_EXCHANGE_RATES.curncy_id = DW_USERS_INFO.BLNG_CURNCY_ID
+      
+	WHERE
+		1=1
+        AND DW_CHECKOUT_TRANS.site_id in (77)
+		AND LOWER(DW_CHECKOUT_TRANS.rprtd_wacko_yn) = 'n'
+		AND DW_CHECKOUT_TRANS.sale_type in (1,2,7,8,9,13)
+		AND DW_CHECKOUT_TRANS.CHECKOUT_STATUS NOT IN (1,3)
+		AND DW_CHECKOUT_TRANS.GMV_DT between "2023-09-01" and "2024-08-31"
+		GROUP BY 1,2,3,4,5,6,7,8,9
+)
+GROUP BY 1,2,3,4,5,6)
+group by 1,2,3,4;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_monthly_sales_metrics_seller_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_monthly_sales_metrics_seller_pt purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_monthly_sales_metrics_seller_pt USING PARQUET AS						 
+select
+month_of_year_id, 
+YEAR_ID, 
+prd_id,
+user_slctd_id,
+count(distinct buyer_id) as buyers,
+sum(gmv_plan_bc) as GMV,
+sum(purchases) as purchases
+
+from (
+
+SELECT
+	seller_id,
+	user_slctd_id,
+	month_of_year_id, 
+	YEAR_ID, 
+	prd_id,
+	buyer_id,
+	sum(purchases) as purchases,
+	ROUND(SUM(GMV_SPOT_USD - Refund_Amount_USD), 2) AS gmv_plan_usd,
+	ROUND(SUM(GMV_in_blng_CURNCY - REFUND_AMOUNT_BILLING_CURRENCY), 2) AS gmv_plan_bc
+FROM (
+	SELECT /*+ MERGE(br) */
+		DW_CHECKOUT_TRANS.SELLER_ID,
+        br.user_slctd_id,
+        month_of_year_id, 
+        YEAR_ID, 
+        prd_id,
+		DW_CHECKOUT_TRANS.SITE_ID,
+		DW_CHECKOUT_TRANS.CART_SRVC_ID,
+		DW_CHECKOUT_TRANS.GMV_DT,
+        buyer_id,
+        sum(quantity) as purchases,
+		MAX(CASE
+				WHEN DW_CHECKOUT_TRANS.LSTG_CURNCY_ID = DW_USERS_INFO.BLNG_CURNCY_ID THEN DW_CHECKOUT_TRANS.REFUND_AMT
+				ELSE ((DW_CHECKOUT_TRANS.REFUND_AMT * DW_CHECKOUT_TRANS.LSTG_CURNCY_EXCHNG_RATE) / DW_DAILY_EXCHANGE_RATES.exchng_rate)
+			END) as REFUND_AMOUNT_BILLING_CURRENCY,
+		max(cast(DW_CHECKOUT_TRANS.refund_amt * DW_CHECKOUT_TRANS.LSTG_CURNCY_EXCHNG_RATE as DECIMAL (18,2))) as Refund_Amount_USD,
+		SUM(DW_CHECKOUT_TRANS.GMV_SPOT_USD) GMV_SPOT_USD,
+		SUM(DW_CHECKOUT_TRANS.GMV_LC_AMT) GMV_LC_AMT,
+		SUM(CASE
+				WHEN DW_CHECKOUT_TRANS.LSTG_CURNCY_ID = DW_USERS_INFO.BLNG_CURNCY_ID THEN GMV_LC_AMT
+				ELSE (DW_CHECKOUT_TRANS.GMV_SPOT_USD/DW_DAILY_EXCHANGE_RATES.exchng_rate)
+			END) as GMV_in_blng_CURNCY
+	   
+	FROM ACCESS_VIEWS.DW_CHECKOUT_TRANS
+	
+    LEFT JOIN ACCESS_VIEWS.DW_USERS_INFO
+	ON DW_CHECKOUT_TRANS.SELLER_ID = DW_USERS_INFO.USER_ID
+        
+	inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table br 
+	on dw_checkout_trans.item_id=br.item_id          
+
+	inner join ACCESS_VIEWS.dw_cal_dt cal 
+	on cal.cal_dt=dw_checkout_trans.gmv_dt
+
+	LEFT JOIN ACCESS_VIEWS.DW_DAILY_EXCHANGE_RATES
+	ON DW_CHECKOUT_TRANS.GMV_DT = DW_DAILY_EXCHANGE_RATES.day_of_trans
+	AND	DW_DAILY_EXCHANGE_RATES.curncy_id = DW_USERS_INFO.BLNG_CURNCY_ID
+      
+	WHERE
+		1=1
+        AND DW_CHECKOUT_TRANS.site_id in (77)
+		AND LOWER(DW_CHECKOUT_TRANS.rprtd_wacko_yn) = 'n'
+		AND DW_CHECKOUT_TRANS.sale_type in (1,2,7,8,9,13)
+		AND DW_CHECKOUT_TRANS.CHECKOUT_STATUS NOT IN (1,3)
+		AND DW_CHECKOUT_TRANS.GMV_DT between "2022-09-01" and "2023-08-31"
+		GROUP BY 1,2,3,4,5,6,7,8,9
+)
+GROUP BY 1,2,3,4,5,6)
+group by 1,2,3,4;
+
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_monthly_sales_metrics_seller_pt COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+select 'sales_metrics_monthly_curr' as insights_type
+,"Seller" AS insights_level
+,"atp-autoteile" AS insights_level_value
+,("77") as site_id
+,a.month_of_year_id
+,a.prd_id
+,COALESCE(a.buyers, 0) as buyers
+,COALESCE((a.purchases), 0) as purchases
+,COALESCE(a.GMV, 0) as gmv
+
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_monthly_sales_metrics_seller_ct a;
+
+
+select 'sales_metrics_monthly_prev' as insights_type
+,"Seller" AS insights_level
+,"atp-autoteile" AS insights_level_value
+,("77") as site_id
+,a.month_of_year_id
+,a.prd_id
+,COALESCE(a.buyers, 0) as buyers
+,COALESCE((a.purchases), 0) as purchases
+,COALESCE(a.GMV, 0) as gmv
+
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_monthly_sales_metrics_seller_pt a;
+
+
+
+
+select  
+  'trust_metrics' as insights_type,
+  user_id as slr_id,
+  
+  CASE WHEN sps_prgrm_id=2 THEN 'US'
+    WHEN sps_prgrm_id=3 THEN 'UK'
+    WHEN sps_prgrm_id=4 THEN 'DE'
+    WHEN sps_prgrm_id=1 THEN 'Global'
+  END as program_site,
+  
+  CASE WHEN sps_slr_level_cd=1 THEN 'eTRS'
+    WHEN sps_slr_level_cd=2 THEN 'Above Standard'
+    WHEN sps_slr_level_cd=4 THEN 'Below Standard'
+    ELSE 'na'
+  END as slr_std,
+  
+  sps_slr_level_sum_start_dt,
+  sps_slr_level_sum_end_dt,
+  
+  eval_mnth_beg_dt,
+  eval_mnth_end_dt,
+  
+  last_eval_dt,
+  
+  CASE WHEN trans_3m_cnt >= 400 THEN trans_3m_cnt 
+    ELSE trans_12m_cnt
+  END as transaction_cnt,
+  
+  CAST(gmv_iso_amt AS DECIMAL(32,8)) * COALESCE(pln.curncy_plan_rate, 1) AS gmv_iso_amt,
+  
+  CASE WHEN (sps_slr_level_cd=1 AND trans_3m_cnt>=400 AND unq_byr_dfct_cnt<=3) THEN (CAST(slr_init_cncl_trans_3m_cnt+infrd_slr_cncl_trans_3m_cnt+ebay_close_inr_saf_3m_cnt+ebay_close_snad_saf_3m_cnt+pp_close_inr_saf_3m_cnt+pp_close_snad_saf_3m_cnt AS DECIMAL(18,5)) / CAST(trans_3m_cnt AS DECIMAL(18,5)))
+    WHEN (sps_slr_level_cd=1 AND trans_12m_cnt<>0 AND unq_byr_dfct_cnt<=3) THEN (CAST(slr_init_cncl_trans_12m_cnt+infrd_slr_cncl_trans_12m_cnt+ebay_close_inr_saf_12m_cnt+ebay_close_snad_saf_12m_cnt+pp_close_inr_saf_12m_cnt+pp_close_snad_saf_12m_cnt AS DECIMAL(18,5)) / CAST(trans_12m_cnt AS DECIMAL(18,5)))
+    WHEN (sps_slr_level_cd=4 AND trans_3m_cnt>=400 AND unq_byr_dfct_cnt>=5) THEN (CAST(slr_init_cncl_trans_3m_cnt+infrd_slr_cncl_trans_3m_cnt+ebay_close_inr_saf_3m_cnt+ebay_close_snad_saf_3m_cnt+pp_close_inr_saf_3m_cnt+pp_close_snad_saf_3m_cnt AS DECIMAL(18,5)) / CAST(trans_3m_cnt AS DECIMAL(18,5)))
+    WHEN (sps_slr_level_cd=4 AND trans_12m_cnt<>0 AND unq_byr_dfct_cnt>=5) THEN (CAST(slr_init_cncl_trans_12m_cnt+infrd_slr_cncl_trans_12m_cnt+ebay_close_inr_saf_12m_cnt+ebay_close_snad_saf_12m_cnt+pp_close_inr_saf_12m_cnt+pp_close_snad_saf_12m_cnt AS DECIMAL(18,5)) / CAST(trans_12m_cnt AS DECIMAL(18,5)))
+    WHEN trans_3m_cnt>=400 THEN (CAST(slr_init_cncl_trans_3m_cnt+infrd_slr_cncl_trans_3m_cnt+ebay_close_inr_saf_3m_cnt+ebay_close_snad_saf_3m_cnt+pp_close_inr_saf_3m_cnt+pp_close_snad_saf_3m_cnt AS DECIMAL(18,5)) / CAST(trans_3m_cnt AS DECIMAL(18,5)))
+    WHEN trans_12m_cnt<>0 THEN (CAST(slr_init_cncl_trans_12m_cnt+infrd_slr_cncl_trans_12m_cnt+ebay_close_inr_saf_12m_cnt+ebay_close_snad_saf_12m_cnt+pp_close_inr_saf_12m_cnt+pp_close_snad_saf_12m_cnt AS DECIMAL(18,5)) / CAST(trans_12m_cnt AS DECIMAL(18,5)))
+    ELSE 0
+  END as odr_rate,
+  
+  
+  CASE WHEN trans_3m_cnt>=400 THEN (CAST(ebay_close_inr_saf_3m_cnt+ebay_close_snad_saf_3m_cnt+pp_close_inr_saf_3m_cnt+pp_close_snad_saf_3m_cnt AS DECIMAL(18,5)) / CAST(trans_3m_cnt AS DECIMAL(18,5)))
+    WHEN trans_12m_cnt<>0 THEN (CAST(ebay_close_inr_saf_12m_cnt+ebay_close_snad_saf_12m_cnt+pp_close_inr_saf_12m_cnt+pp_close_snad_saf_12m_cnt AS DECIMAL(18,5)) / CAST(trans_12m_cnt AS DECIMAL(18,5)))
+    ELSE 0
+  END as saf_rate,
+  
+  
+  CASE WHEN dlvry_miss_elgbl_cnt <> 0 THEN CAST(CAST(dlvry_miss_cnt AS DECIMAL(18,5)) / CAST(dlvry_miss_elgbl_cnt AS DECIMAL(18,5)) AS DECIMAL(18,5))
+    ELSE 0
+  END as lsr_rate,
+  
+    CASE WHEN trans_3m_cnt <> 0 THEN CAST(CAST(VALID_SLA_TRK_UPLD_TRANS_CNT AS DECIMAL(18,5)) / CAST(trans_3m_cnt AS DECIMAL(18,5)) AS DECIMAL(18,5))
+    ELSE 0
+    END as tracking_uploaded_validated_rate
+
+  
+FROM PRS_RESTRICTED_V.sps_level_metric_sum as s
+
+LEFT JOIN access_views.dw_currencies as dwcurr ON dwcurr.iso_code = s.gmv_iso_crncy_cd
+LEFT JOIN ACCESS_VIEWS.ssa_curncy_plan_rate_dim as pln ON pln.curncy_id = dwcurr.curncy_id 
+
+WHERE
+  s.sps_eval_type_cd = 1 
+  AND s.LAST_EVAL_DT >= TRUNC(ADD_MONTHS(TRUNC(CURRENT_DATE, 'MM'), -1), 'MM')
+    AND s.USER_ID in (18116485)
+  AND s.SPS_PRGRM_ID = CASE
+    WHEN "DE" = 'US' THEN 2
+    WHEN "DE" = 'UK' THEN 3
+    WHEN "DE" = 'DE' THEN 4
+    ELSE 1 END
+
+QUALIFY ROW_NUMBER () OVER (PARTITION BY USER_ID, program_site, YEAR(sps_slr_level_sum_start_dt), MONTH(sps_slr_level_sum_start_dt) ORDER BY EVAL_MNTH_END_DT, LAST_EVAL_DT DESC ) = 1
+limit 1;
+
+
+
+						
+
+
+
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+select 
+'seller_sps_metric' as insights_type,
+user_id as slr_id,
+user_slctd_id as slr_name,
+CASE WHEN SPS_PRGRM_ID = 2 THEN 'US'
+WHEN SPS_PRGRM_ID= 3 THEN 'UK'
+WHEN SPS_PRGRM_ID= 4 THEN 'DE'
+WHEN SPS_PRGRM_ID = 1 THEN 'GLOBAL'
+ELSE 'NA' END as sps_prgrm,
+(CASE
+WHEN SPS_SLR_LEVEL_CD=1 THEN 'eTRS'
+WHEN SPS_SLR_LEVEL_CD=2 THEN 'Above Standard'
+WHEN SPS_SLR_LEVEL_CD=4 THEN 'Below Standard'
+ELSE 'DATA NOT AVAIABLE' END) AS rating ,"2024-09-28" as last_eval_dt
+,0 as eval_rank
+
+FROM
+(
+SELECT
+USER_ID, user_slctd_id,
+SPS_PRGRM_ID , SPS_SLR_LEVEL_CD FROM PRS_RESTRICTED_V.SPS_LEVEL SPS
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table b
+ON sps.USER_ID = b.slr_id
+WHERE SPS_EVAL_TYPE_CD = 3 and SPS_PRGRM_ID = 4 QUALIFY ROW_NUMBER() OVER (PARTITION BY USER_ID, SPS_PRGRM_ID ORDER BY LAST_EVAL_DT DESC) = 1
+) a
+
+union all
+
+select 'seller_sps_metric' as insights_type, user_id as slr_id, user_slctd_id as slr_name, sps_prgrm, rating, last_eval_dt as last_eval_dt, eval_rank
+from
+(select USER_ID, SPS_PRGRM, RATING, LAST_EVAL_DT, EVAL_MNTH_END_DT,user_slctd_id,
+ROW_NUMBER () OVER (PARTITION BY USER_ID, SPS_PRGRM_ID ORDER BY EVAL_MNTH_END_DT DESC ) as eval_rank from 
+(
+SELECT SPS.USER_ID 
+,SPS_PRGRM_ID
+,CASE WHEN SPS_PRGRM_ID = 2 THEN 'US'
+WHEN SPS_PRGRM_ID= 3 THEN 'UK'
+WHEN SPS_PRGRM_ID= 4 THEN 'DE'
+WHEN SPS_PRGRM_ID = 1 THEN 'GLOBAL'
+ELSE 'NA' END AS SPS_PRGRM    
+,CASE WHEN SPS_SLR_LEVEL_CD=1 THEN 'eTRS'
+WHEN SPS_SLR_LEVEL_CD=2 THEN 'Above Standard'
+WHEN SPS_SLR_LEVEL_CD=4 THEN 'Below Standard' END AS RATING
+, LAST_EVAL_DT
+, EVAL_MNTH_END_DT, SPS_SLR_LEVEL_SUM_START_DT, SPS_SLR_LEVEL_SUM_END_DT
+, SPS_SLR_LEVEL_CD
+,user_slctd_id
+
+FROM PRS_RESTRICTED_V.SPS_LEVEL_METRIC_SUM sps
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table b
+ON sps.USER_ID = b.slr_id
+WHERE 1=1
+and SPS_PRGRM_ID = 4 QUALIFY ROW_NUMBER () OVER (PARTITION BY USER_ID, SPS_PRGRM_ID, EVAL_MNTH_END_DT ORDER BY EVAL_MNTH_END_DT, LAST_EVAL_DT DESC ) <= 1
+order by LAST_EVAL_DT desc
+) a
+QUALIFY ROW_NUMBER () OVER (PARTITION BY USER_ID, SPS_PRGRM_ID ORDER BY EVAL_MNTH_END_DT DESC ) <= 2
+)b
+
+;
+
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_metrics_ct purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_metrics_ct USING PARQUET AS
+select flag,
+user_slctd_id, 
+sum(total_imp_cnt) as total_imps,
+sum(total_click_cnt) as total_click_cnt,
+sum(ebay_click_cnt) as on_ebay_click_cnt,
+sum(off_ebay_click_cnt) as off_ebay_click_cnt,
+sum(ebay_click_cnt)/sum(total_imp_cnt) as ovl_conversion,
+sum(srp_top20_slot_imp_cnt)+sum(srp_rest_slot_imp_cnt) as srp_imp_cnt,
+sum(srp_top20_slot_imp_cnt) as srp_top20_slot_imp_cnt,
+sum(srp_rest_slot_imp_cnt) as srp_rest_slot_imp_cnt,
+sum(merch_imp_cnt) as merch_imp_cnt,
+sum(case when event_type_cd='PL' then total_imp_cnt else 0 end) as pl_imps,
+sum(case when event_type_cd='PL' then total_click_cnt else 0 end) as pl_clicks,
+sum(case when event_type_cd='PL' then ebay_click_cnt else 0 end) as pl_on_ebay_clicks,
+sum(case when event_type_cd='PL' then off_ebay_click_cnt else 0 end) as pl_off_ebay_clicks,
+sum(case when event_type_cd='PL' then ebay_click_cnt else 0 end)/sum(case when event_type_cd='PL' then total_imp_cnt else 0 end) as pl_conversion,
+sum(case when event_type_cd='PL' then srp_top20_slot_imp_cnt+srp_rest_slot_imp_cnt else 0 end) as pl_srp_imp_cnt,
+sum(case when event_type_cd='PL' then srp_top20_slot_imp_cnt else 0 end) as pl_srp_top20_slot_imp_cnt,
+sum(case when event_type_cd='PL' then srp_rest_slot_imp_cnt else 0 end) as pl_srp_rest_slot_imp_cnt,
+sum(case when event_type_cd='PL' then merch_imp_cnt else 0 end) as pl_merch_imp_cnt,
+sum(case when event_type_cd='PLP' then total_imp_cnt else 0 end) as pla_imps,
+sum(case when event_type_cd='PLP' then total_click_cnt else 0 end) as pla_clicks,
+sum(case when event_type_cd='PLP' then ebay_click_cnt else 0 end) as pla_on_ebay_clicks,
+sum(case when event_type_cd='PLP' then off_ebay_click_cnt else 0 end) as pla_off_ebay_clicks,
+SUM(CASE WHEN event_type_cd='Organic' THEN total_imp_cnt ELSE 0 END) AS organic_impressions,
+SUM(CASE WHEN event_type_cd='Organic' THEN total_click_cnt ELSE 0 END) AS organic_clicks,
+
+sum(case when event_type_cd='PLP' then ebay_click_cnt else 0 end)/sum(case when event_type_cd='PLP' then total_imp_cnt else 0 end) as pla_conversion,
+sum(case when event_type_cd='PLP' then srp_top20_slot_imp_cnt+srp_rest_slot_imp_cnt else 0 end) as pla_srp_imp_cnt,
+sum(case when event_type_cd='PLP' then merch_imp_cnt else 0 end) as pla_merch_imp_cnt,
+sum(case when event_type_cd='SFA' then total_click_cnt else 0 end) as sfa_clicks
+
+from (
+select
+("2023-09-01"||' to '||"2024-08-31")flag,user_slctd_id, 
+bpe.dt,
+bpe.event_type_cd,
+bpe.item_id,
+bpe.total_imp_cnt,
+bpe.srp_top20_slot_imp_cnt,
+bpe.srp_rest_slot_imp_cnt,
+bpe.merch_imp_cnt,
+bpe.total_click_cnt,
+bpe.ebay_click_cnt,
+bpe.off_ebay_click_cnt
+from bpe_v.pl_org_ads_imp_click_sd bpe 
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table items 
+on items.item_id=bpe.item_id 
+where from_unixtime(unix_timestamp(dt,'yyyyMMdd'),'yyyy-MM-dd') between "2023-09-01" and "2024-08-31"	  
+group by 1,2,3,4,5,6,7,8,9,10,11,12
+) base
+group by 1,2;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_metrics_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_metrics_pt purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_metrics_pt USING PARQUET AS
+select flag,
+user_slctd_id, 
+sum(total_imp_cnt) as total_imps,
+sum(total_click_cnt) as total_click_cnt,
+sum(ebay_click_cnt) as on_ebay_click_cnt,
+sum(off_ebay_click_cnt) as off_ebay_click_cnt,
+sum(ebay_click_cnt)/sum(total_imp_cnt) as ovl_conversion,
+sum(srp_top20_slot_imp_cnt)+sum(srp_rest_slot_imp_cnt) as srp_imp_cnt,
+sum(srp_top20_slot_imp_cnt) as srp_top20_slot_imp_cnt,
+sum(srp_rest_slot_imp_cnt) as srp_rest_slot_imp_cnt,
+sum(merch_imp_cnt) as merch_imp_cnt,
+sum(case when event_type_cd='PL' then total_imp_cnt else 0 end) as pl_imps,
+sum(case when event_type_cd='PL' then total_click_cnt else 0 end) as pl_clicks,
+sum(case when event_type_cd='PL' then ebay_click_cnt else 0 end) as pl_on_ebay_clicks,
+sum(case when event_type_cd='PL' then off_ebay_click_cnt else 0 end) as pl_off_ebay_clicks,
+sum(case when event_type_cd='PL' then ebay_click_cnt else 0 end)/sum(case when event_type_cd='PL' then total_imp_cnt else 0 end) as pl_conversion,
+sum(case when event_type_cd='PL' then srp_top20_slot_imp_cnt+srp_rest_slot_imp_cnt else 0 end) as pl_srp_imp_cnt,
+sum(case when event_type_cd='PL' then srp_top20_slot_imp_cnt else 0 end) as pl_srp_top20_slot_imp_cnt,
+sum(case when event_type_cd='PL' then srp_rest_slot_imp_cnt else 0 end) as pl_srp_rest_slot_imp_cnt,
+sum(case when event_type_cd='PL' then merch_imp_cnt else 0 end) as pl_merch_imp_cnt,
+sum(case when event_type_cd='PLP' then total_imp_cnt else 0 end) as pla_imps,
+sum(case when event_type_cd='PLP' then total_click_cnt else 0 end) as pla_clicks,
+sum(case when event_type_cd='PLP' then ebay_click_cnt else 0 end) as pla_on_ebay_clicks,
+sum(case when event_type_cd='PLP' then off_ebay_click_cnt else 0 end) as pla_off_ebay_clicks,
+SUM(CASE WHEN event_type_cd='Organic' THEN total_imp_cnt ELSE 0 END) AS organic_impressions,
+SUM(CASE WHEN event_type_cd='Organic' THEN total_click_cnt ELSE 0 END) AS organic_clicks,
+
+sum(case when event_type_cd='PLP' then ebay_click_cnt else 0 end)/sum(case when event_type_cd='PLP' then total_imp_cnt else 0 end) as pla_conversion,
+sum(case when event_type_cd='PLP' then srp_top20_slot_imp_cnt+srp_rest_slot_imp_cnt else 0 end) as pla_srp_imp_cnt,
+sum(case when event_type_cd='PLP' then merch_imp_cnt else 0 end) as pla_merch_imp_cnt,
+sum(case when event_type_cd='SFA' then total_click_cnt else 0 end) as sfa_clicks
+
+from (
+select
+("2022-09-01"||' to '||"2023-08-31")flag,user_slctd_id, 
+bpe.dt,
+bpe.event_type_cd,
+bpe.item_id,
+bpe.total_imp_cnt,
+bpe.srp_top20_slot_imp_cnt,
+bpe.srp_rest_slot_imp_cnt,
+bpe.merch_imp_cnt,
+bpe.total_click_cnt,
+bpe.ebay_click_cnt,
+bpe.off_ebay_click_cnt
+from bpe_v.pl_org_ads_imp_click_sd bpe 
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table items 
+on items.item_id=bpe.item_id 
+where from_unixtime(unix_timestamp(dt,'yyyyMMdd'),'yyyy-MM-dd') between "2022-09-01" and "2023-08-31"	  
+group by 1,2,3,4,5,6,7,8,9,10,11,12
+) base
+group by 1,2;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_metrics_pt COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_monthly_impressions_pl_org_seller_ct purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_monthly_impressions_pl_org_seller_ct USING PARQUET AS					 
+select	flag,prd_id,month_of_year_id,year_id,user_slctd_id, 
+sum(total_imp_cnt) as total_imprsns_curr,
+sum(case when event_type_cd='PL' then total_imp_cnt else 0 end) as pl_imps_curr,
+sum(case when event_type_cd='PLP' then total_imp_cnt else 0 end) as pla_imps_curr,
+sum(case when event_type_cd='SFA' then total_click_cnt else 0 end) as sfa_clicks_curr,
+sum(case when event_type_cd='Organic' then total_imp_cnt else 0 end) as organic_impressions_curr
+from (
+select
+("2023-09-01"||' to '||"2024-08-31") flag,
+user_slctd_id, 
+prd_id,
+cal_dt,
+month_of_year_id,
+year_id,
+bpe.event_type_cd,
+bpe.item_id,
+bpe.total_imp_cnt,
+bpe.srp_top20_slot_imp_cnt,
+bpe.srp_rest_slot_imp_cnt,
+bpe.merch_imp_cnt,
+bpe.total_click_cnt,
+bpe.ebay_click_cnt,
+bpe.off_ebay_click_cnt
+from bpe_v.pl_org_ads_imp_click_sd bpe 
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table items 
+on items.item_id=bpe.item_id
+inner join ACCESS_VIEWS.dw_cal_dt cal 
+on from_unixtime(unix_timestamp(dt,'yyyyMMdd'),'yyyy-MM-dd')=cal.cal_dt
+where from_unixtime(unix_timestamp(dt,'yyyyMMdd'),'yyyy-MM-dd') between "2023-09-01" and "2024-08-31"
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
+) base
+group by 1,2,3,4,5;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_monthly_impressions_pl_org_seller_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_monthly_impressions_pl_org_seller_pt purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_monthly_impressions_pl_org_seller_pt USING PARQUET AS					 
+select	flag,prd_id,month_of_year_id,year_id,user_slctd_id, 
+sum(total_imp_cnt) as total_imprsns_prev,
+sum(case when event_type_cd='PL' then total_imp_cnt else 0 end) as pl_imps_prev,
+sum(case when event_type_cd='PLP' then total_imp_cnt else 0 end) as pla_imps_prev,
+sum(case when event_type_cd='SFA' then total_click_cnt else 0 end) as sfa_clicks_prev,
+sum(case when event_type_cd='Organic' then total_imp_cnt else 0 end) as organic_impressions_prev
+from (
+select
+("2022-09-01"||' to '||"2023-08-31")flag,user_slctd_id, 
+prd_id,
+cal_dt,
+month_of_year_id,year_id,
+bpe.event_type_cd,
+bpe.item_id,
+bpe.total_imp_cnt,
+bpe.srp_top20_slot_imp_cnt,
+bpe.srp_rest_slot_imp_cnt,
+bpe.merch_imp_cnt,
+bpe.total_click_cnt,
+bpe.ebay_click_cnt,
+bpe.off_ebay_click_cnt
+from bpe_v.pl_org_ads_imp_click_sd bpe 
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table items 
+on items.item_id=bpe.item_id
+inner join ACCESS_VIEWS.dw_cal_dt cal 
+on from_unixtime(unix_timestamp(dt,'yyyyMMdd'),'yyyy-MM-dd')=cal.cal_dt
+where from_unixtime(unix_timestamp(dt,'yyyyMMdd'),'yyyy-MM-dd') between "2022-09-01" and "2023-08-31"
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
+) base
+group by 1,2,3,4,5; 
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_monthly_impressions_pl_org_seller_pt COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+select 'traffic_metrics_monthly_curr' as insights_type
+,"Seller" AS insights_level
+,"atp-autoteile" AS insights_level_value
+,a.flag as date_range
+,a.prd_id as month_date_range
+,("77") as site_id
+
+,pl_imps_curr as pls_imprsns_curr
+,pla_imps_curr as pla_imprsns_curr
+,pl_imps_curr + pla_imps_curr as total_pl_imprsns_curr
+,sfa_clicks_curr
+
+,organic_impressions_curr
+,total_imprsns_curr
+
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_monthly_impressions_pl_org_seller_ct a
+;
+
+select 'traffic_metrics_monthly_prev' as insights_type
+,"Seller" AS insights_level
+,"atp-autoteile" AS insights_level_value
+,b.flag as date_range_comp
+,b.prd_id as month_date_range_comp
+,("77") as site_id
+
+,pl_imps_prev as pls_imprsns_prev
+,pla_imps_prev as pla_imprsns_prev
+,pl_imps_prev + pla_imps_prev as total_pl_imprsns_prev
+,sfa_clicks_prev
+
+,organic_impressions_prev
+,total_imprsns_prev
+
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_monthly_impressions_pl_org_seller_pt b
+;
+
+
+
+select 'traffic_metrics' as insights_type
+,"Seller" AS insights_level
+,"atp-autoteile" AS insights_level_value
+,a.flag as date_range
+,b.flag as date_range_comp
+,("77") as site_id
+
+,a.total_imps as curr_impressions
+,b.total_imps as prev_impressions
+,COALESCE(((a.total_imps-b.total_imps)/b.total_imps), 0) as impressions_growth
+
+,a.total_click_cnt as curr_clicks
+,b.total_click_cnt as prev_clicks
+,COALESCE(((a.total_click_cnt-b.total_click_cnt)/b.total_click_cnt), 0) as click_growth
+
+
+,a.total_click_cnt/ a.total_imps as curr_ctr 
+,b.total_click_cnt/ b.total_imps as prev_ctr
+,COALESCE(((a.total_click_cnt/ a.total_imps)-(b.total_click_cnt/ b.total_imps))/(b.total_click_cnt/ b.total_imps), 0) as ctr_growth
+
+
+,a.srp_top20_slot_imp_cnt as curr_srp_top20_slot_imp_cnt
+,b.srp_top20_slot_imp_cnt as prev_srp_top20_slot_imp_cnt
+,COALESCE(((a.srp_top20_slot_imp_cnt-b.srp_top20_slot_imp_cnt)/b.srp_top20_slot_imp_cnt), 0) as srp_top20_slot_imp_cnt_growth
+
+,a.srp_rest_slot_imp_cnt as curr_srp_rest_slot_imp_cnt
+,b.srp_rest_slot_imp_cnt as prev_srp_rest_slot_imp_cnt
+,COALESCE(((a.srp_rest_slot_imp_cnt-b.srp_rest_slot_imp_cnt)/b.srp_rest_slot_imp_cnt), 0) as srp_rest_slot_imp_cnt_growth
+
+
+,a.merch_imp_cnt as curr_merch_imp_cnt
+,b.merch_imp_cnt as prev_merch_imp_cnt
+,COALESCE(((a.merch_imp_cnt-b.merch_imp_cnt)/b.merch_imp_cnt), 0) as merch_imp_cnt_growth
+
+,(a.pl_imps + a.pla_imps) as curr_pl_impressions
+,(b.pl_imps + b.pla_imps) as prev_pl_impressions
+,COALESCE((curr_pl_impressions - prev_pl_impressions)/prev_pl_impressions, 0) as pl_impressions_growth
+
+,ifnull(a.organic_impressions, 0) as curr_organic_impressions
+,ifnull(b.organic_impressions, 0) as prev_organic_impressions
+,COALESCE((curr_organic_impressions - prev_organic_impressions)/prev_organic_impressions, 0) as organic_impressions_growth
+
+,a.srp_top20_slot_imp_cnt/a.total_imps as curr_srp_top20_slot_imp_perc
+,a.srp_rest_slot_imp_cnt/a.total_imps as curr_srp_rest_slot_imp_perc
+,a.merch_imp_cnt/a.total_imps as curr_merch_imp_perc
+
+,b.srp_top20_slot_imp_cnt/b.total_imps as prev_srp_top20_slot_imp_perc
+,b.srp_rest_slot_imp_cnt/b.total_imps as prev_srp_rest_slot_imp_perc
+,b.merch_imp_cnt/b.total_imps as prev_merch_imp_perc
+
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_metrics_ct a
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_metrics_pt b
+on 1=1
+;
+
+
+            
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_listings_ct purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_listings_ct USING PARQUET AS
+select
+("2023-09-01"||' to '||"2024-08-31") as flag,user_slctd_id, 	   	   
+count(distinct case when cal_dt = date_add(CURRENT_DATE,-2) then lstg.item_id end) items
+
+from access_views.dw_lstg_item lstg
+
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table sl
+on lstg.item_id=sl.item_id
+
+inner join access_views.dw_category_groupings cat
+on lstg.item_site_id = cat.site_id
+and lstg.leaf_categ_id =cat.leaf_categ_id
+
+inner join access_views.dw_cal_dt cal
+on cal.cal_dt between lstg.auct_start_dt and lstg.auct_end_dt
+
+left join access_views.pl_elgbl_cats elg
+on elg.site_id =lstg.item_site_id
+and elg.leaf_categ_id = lstg.leaf_categ_id
+
+left join ACCESS_VIEWS.DW_GEM2_CMN_STCKOUT_HIST s 
+on lstg.item_id=s.lstg_id 
+and cal.cal_date between start_dt and end_dt 
+
+where 1=1
+and cal_dt BETWEEN date_add(CURRENT_DATE,-2) and date_add(CURRENT_DATE,-2) and lstg.auct_end_dt >= cal_dt and lstg.auct_start_dt <= cal_dt and lower(wacko_yn) = lower('N')  and auct_type_code in (7,9)
+and elg.leaf_categ_id is not null
+and cat.sap_category_id not in (5,7,41,23,-999)
+
+and s.lstg_id is null and cat.site_id in (77) group by 1,2
+;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_listings_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+    
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_listings_pt purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_listings_pt USING PARQUET AS
+select
+("2022-09-01"||' to '||"2023-08-31") as flag, user_slctd_id,
+count(distinct case when cal_dt = date_add(CURRENT_DATE,-367) then lstg.item_id  end) items
+
+from access_views.dw_lstg_item lstg
+
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table sl
+on lstg.item_id=sl.item_id
+
+inner join access_views.dw_category_groupings cat
+on lstg.item_site_id = cat.site_id
+and lstg.leaf_categ_id =cat.leaf_categ_id
+
+inner join access_views.dw_cal_dt cal
+on cal.cal_dt between lstg.auct_start_dt and lstg.auct_end_dt
+
+left join access_views.pl_elgbl_cats elg
+on elg.site_id =lstg.item_site_id
+and elg.leaf_categ_id = lstg.leaf_categ_id
+
+left join ACCESS_VIEWS.DW_GEM2_CMN_STCKOUT_HIST s 
+on lstg.item_id=s.lstg_id 
+and cal.cal_date between start_dt and end_dt 
+
+where 1=1
+and cal_dt BETWEEN date_add(CURRENT_DATE,-367) and date_add(CURRENT_DATE,-367) and lstg.auct_end_dt >= cal_dt and lstg.auct_start_dt <= cal_dt 
+and lower(wacko_yn) = lower('N')  and auct_type_code in (7,9)
+and elg.leaf_categ_id is not null
+and cat.sap_category_id not in (5,7,41,23,-999)
+
+and s.lstg_id is null and cat.site_id in (77) group by 1,2;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_listings_pt COMPUTE STATISTICS FOR ALL COLUMNS;
+
+    
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pls_listings_ct purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pls_listings_ct USING PARQUET AS
+select /*+ MERGE(st) */
+("2023-09-01"||' to '||"2024-08-31") as flag, user_slctd_id,	   	   
+count(distinct pls.item_id) as pls_items
+from p_ads_analytics_t.PL_Listing_Daily pls
+inner join p_ads_analytics_t.pl_campaign_daily b 
+on pls.ads_cmpgn_id = b.ads_cmpgn_id
+and pls.cal_dt = b.cal_dt 
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+on pls.item_id=st.item_id
+inner join access_views.dw_cal_dt cal 
+on cal.cal_dt = pls.cal_dt		   
+where pls.cal_dt between date_add(CURRENT_DATE,-2) and date_add(CURRENT_DATE,-2) 
+and (b.cmpgn_sts_id is null or b.cmpgn_sts_id in (1,7))
+group by 1,2;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pls_listings_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pls_listings_pt purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pls_listings_pt USING PARQUET AS
+select /*+ MERGE(st) */
+("2022-09-01"||' to '||"2023-08-31") as flag, user_slctd_id,	   	   
+count(distinct pls.item_id) as pls_items
+from p_ads_analytics_t.PL_Listing_Daily pls
+inner join p_ads_analytics_t.pl_campaign_daily b 
+on pls.ads_cmpgn_id = b.ads_cmpgn_id
+and pls.cal_dt = b.cal_dt 
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+on pls.item_id=st.item_id
+inner join access_views.dw_cal_dt cal 
+on cal.cal_dt = pls.cal_dt		   
+where pls.cal_dt between date_add(CURRENT_DATE,-367) and date_add(CURRENT_DATE,-367) 
+and (b.cmpgn_sts_id is null or b.cmpgn_sts_id in (1,7))
+group by 1,2;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pls_listings_pt COMPUTE STATISTICS FOR ALL COLUMNS;
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_PLS_ad_rate_ct purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_PLS_ad_rate_ct USING PARQUET AS
+select
+("2023-09-01"||' to '||"2024-08-31") as flag, 
+user_slctd_id
+,sum(PL_REV_USD_AMT) PL_Revenue 
+,avg(LSTG_BID_PCT)/100 as pls_adrate,avg(SOLD_BID_PCT)/100 as pls_sold_adrate
+from access_views.pl_item_mtrc_sd perf_metric
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table x
+on x.item_id = 	perf_metric.item_id
+where item_site_id in (77) 
+and to_date(DT,'yyyyMMdd') BETWEEN "2023-09-01" and "2024-08-31" 
+group by 1,2;   
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_PLS_ad_rate_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_PLS_ad_rate_pt purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_PLS_ad_rate_pt USING PARQUET AS
+select
+("2022-09-01"||' to '||"2023-08-31") as flag,
+user_slctd_id
+,sum(PL_REV_USD_AMT) PL_Revenue
+,avg(LSTG_BID_PCT)/100 as pls_adrate,avg(SOLD_BID_PCT)/100 as pls_sold_adrate
+from access_views.pl_item_mtrc_sd perf_metric
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table x
+on x.item_id = 	perf_metric.item_id
+where item_site_id in (77) 
+and to_date(DT,'yyyyMMdd') BETWEEN  "2022-09-01" and "2023-08-31" 
+group by 1,2; 
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_PLS_ad_rate_pt COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+        
+select 'pls_metrics' as insights_type
+,"Seller" AS insights_level
+,"atp-autoteile" AS insights_level_value
+,a.flag as date_range
+,b.flag as date_range_comp
+,("77") as site_id
+
+,COALESCE(m.pls_gmv, 0) as curr_pls_sales 
+,COALESCE(n.pls_gmv, 0) as prev_pls_sales
+,COALESCE(((curr_pls_sales - prev_pls_sales) / NULLIF(prev_pls_sales, 0)), 0) AS change_pls_sales
+
+,COALESCE(m.pls_ad_fee, 0) as curr_pls_adspend 
+,COALESCE(n.pls_ad_fee, 0) as prev_pls_adspend
+,COALESCE(((curr_pls_adspend - prev_pls_adspend) / NULLIF(prev_pls_adspend, 0)), 0) AS change_pls_adspend
+
+,COALESCE(m.pls_si, 0) as curr_pls_si
+,COALESCE(n.pls_si, 0) as prev_pls_si
+,COALESCE(((curr_pls_si - prev_pls_si) / NULLIF(prev_pls_si, 0)), 0) AS change_pls_si 
+
+,(a.pl_imps) as curr_pls_impressions
+,(b.pl_imps) as prev_pls_impressions
+,COALESCE((a.pl_imps - b.pl_imps) / b.pl_imps, 0) as change_pls_impressions
+
+,a.pl_clicks/a.pl_imps as curr_pls_ctr 
+,b.pl_clicks/b.pl_imps as prev_pls_ctr
+,COALESCE((curr_pls_ctr - prev_pls_ctr)/prev_pls_ctr, 0) as change_pls_ctr
+
+,m.pls_si/a.pl_clicks as curr_pls_cvr 
+,n.pls_si/b.pl_clicks as prev_pls_cvr
+,COALESCE((curr_pls_cvr - prev_pls_cvr)/prev_pls_cvr, 0) as change_pls_cvr
+
+,ifnull(m.pls_gmv/m.pls_ad_fee,0) as curr_pls_roas
+,ifnull(n.pls_gmv/n.pls_ad_fee,0) as prev_pls_roas
+,COALESCE((curr_pls_roas - prev_pls_roas)/prev_pls_roas, 0) as change_pls_roas
+
+,ifnull(i.pls_items/g.items,0) as curr_pls_listing_adoption
+,ifnull(j.pls_items/h.items,0) as prev_pls_listing_adoption
+,COALESCE((curr_pls_listing_adoption - prev_pls_listing_adoption)/prev_pls_listing_adoption, 0) as change_pls_listing_adoption
+
+,e.pls_adrate curr_pls_set_adrate 
+,f.pls_adrate prev_pls_set_adrate
+,COALESCE((e.pls_adrate - f.pls_adrate)/f.pls_adrate, 0) as change_pls_set_adrate
+
+,e.pls_sold_adrate curr_pls_sold_adrate
+,f.pls_sold_adrate prev_pls_sold_adrate 
+,COALESCE((e.pls_sold_adrate - f.pls_sold_adrate)/f.pls_sold_adrate, 0) as change_pls_sold_adrate
+
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_metrics_ct a
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_metrics_pt b
+on 1=1
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_PLS_ad_rate_ct e
+on 1=1
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_PLS_ad_rate_pt f
+on 1=1
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_listings_ct g
+on 1=1
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_listings_pt h
+on 1=1
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pls_listings_ct i 
+on 1=1
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pls_listings_pt j 
+on 1=1
+
+left outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_adfee_ct m
+on 1=1
+
+left outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_adfee_pt n
+on 1=1;
+
+
+
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_elig_listings_l12m PURGE;
+CREATE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_elig_listings_l12m USING PARQUET AS
+SELECT
+    cal.cal_dt AS cal_dt,
+    COUNT(DISTINCT lstg.item_id) AS items
+
+FROM access_views.dw_cal_dt cal
+
+INNER JOIN access_views.dw_lstg_item lstg
+    ON cal.cal_dt BETWEEN lstg.auct_start_dt AND lstg.auct_end_dt
+    AND lstg.auct_type_code IN (7, 9)
+
+INNER JOIN access_views.dw_category_groupings cat
+    ON lstg.item_site_id = cat.site_id
+    AND lstg.leaf_categ_id = cat.leaf_categ_id
+    AND cat.sap_category_id NOT IN (5, 7, 41, 23, -999)
+    AND cat.site_id IN (77)
+
+INNER JOIN access_views.pl_elgbl_cats elg
+    ON lstg.item_site_id = elg.site_id
+    AND lstg.leaf_categ_id = elg.leaf_categ_id
+
+LEFT ANTI JOIN ACCESS_VIEWS.DW_GEM2_CMN_STCKOUT_HIST s
+    ON lstg.item_id = s.lstg_id
+    AND cal.cal_dt BETWEEN s.start_dt AND s.end_dt
+
+WHERE
+    lstg.slr_id in (18116485)
+	AND lstg.ITEM_SITE_ID IN (77)
+    AND cal.cal_dt BETWEEN TRUNC(ADD_MONTHS(CURRENT_DATE, -12), 'MM') AND LAST_DAY(ADD_MONTHS(CURRENT_DATE, -1))
+GROUP BY cal.cal_dt
+ORDER BY cal.cal_dt;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_elig_listings_l12m COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pls_listings_l12m purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pls_listings_l12m USING PARQUET AS
+SELECT 
+    pls.cal_dt, 
+    COUNT(DISTINCT pls.item_id) AS pls_items
+FROM p_ads_analytics_t.PL_Listing_Daily pls
+INNER JOIN p_ads_analytics_t.pl_campaign_daily b 
+    ON pls.ads_cmpgn_id = b.ads_cmpgn_id
+    AND pls.cal_dt = b.cal_dt
+WHERE 
+    pls.slr_id in (18116485)
+	AND pls.ITEM_SITE_ID IN (77)
+    AND (b.cmpgn_sts_id IS NULL OR b.cmpgn_sts_id IN (1,7))
+    AND pls.cal_dt BETWEEN TRUNC(ADD_MONTHS(CURRENT_DATE, -12), 'MM') AND LAST_DAY(ADD_MONTHS(CURRENT_DATE, -1))
+GROUP BY pls.cal_dt
+ORDER BY pls.cal_dt;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pls_listings_l12m COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_PLS_ad_rate_l12m purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_PLS_ad_rate_l12m USING PARQUET AS
+SELECT
+    to_date(perf_metric.DT, 'yyyyMMdd') as cal_dt,
+    COALESCE(AVG(perf_metric.LSTG_BID_PCT) / 100, 0) AS pls_adrate,
+    COALESCE(AVG(perf_metric.SOLD_BID_PCT) / 100, 0) AS pls_sold_adrate
+
+FROM access_views.pl_item_mtrc_sd perf_metric
+
+WHERE perf_metric.slr_id in (18116485)
+    AND to_date(perf_metric.DT, 'yyyyMMdd') BETWEEN TRUNC(ADD_MONTHS(CURRENT_DATE, -12), 'MM') AND LAST_DAY(ADD_MONTHS(CURRENT_DATE, -1))
+    AND perf_metric.item_site_id IN (77)
+GROUP BY 1
+ORDER BY 1;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_PLS_ad_rate_l12m COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_adfee_l12m purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+CREATE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_adfee_l12m USING PARQUET AS
+SELECT 
+    FROM_UNIXTIME(k.EVENT_TM / 1000, 'yyyy-MM-dd') as cal_dt,
+    SUM(CASE WHEN k.event_type_txt = 'PLS' THEN k.item_sold_qty ELSE 0 END) AS pls_si,    
+    SUM(CASE WHEN k.event_type_txt = 'PLS' THEN k.sale_slr_blng_curncy_amt ELSE 0 END) AS pls_gmv,   
+    SUM(CASE WHEN k.event_type_txt = 'PLS' THEN k.ad_fee_slr_blng_curncy_amt ELSE 0 END) AS pls_ad_fee
+
+FROM ACCESS_VIEWS.PL_ORG_ADS_SALES_FACT k
+    
+WHERE 
+    FROM_UNIXTIME(k.EVENT_TM / 1000, 'yyyy-MM-dd') BETWEEN TRUNC(ADD_MONTHS(CURRENT_DATE, -12), 'MM') AND LAST_DAY(ADD_MONTHS(CURRENT_DATE, -1))
+    AND k.event_type_txt = 'PLS'
+    AND k.seller_id in (18116485)
+	AND k.lstg_site_cd IN ('DE-77') 
+GROUP BY 1
+ORDER BY 1;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_adfee_l12m COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_seller_gross_gmv_si_ct purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_seller_gross_gmv_si_ct USING PARQUET AS
+select
+gmv_dt as cal_dt,
+SUM(CASE WHEN DW_CHECKOUT_TRANS.LSTG_CURNCY_ID = DW_USERS_INFO.BLNG_CURNCY_ID THEN GMV_LC_AMT
+    ELSE (DW_CHECKOUT_TRANS.GMV_SPOT_USD / DW_DAILY_EXCHANGE_RATES.exchng_rate)
+    END) as gross_gmv_bc,
+            
+sum(CORE_ITEM_CNT) as purchases
+
+from access_views.dw_checkout_trans	 
+
+LEFT JOIN ACCESS_VIEWS.DW_USERS_INFO
+ON DW_CHECKOUT_TRANS.SELLER_ID = DW_USERS_INFO.USER_ID
+
+LEFT JOIN ACCESS_VIEWS.DW_DAILY_EXCHANGE_RATES
+ON DW_CHECKOUT_TRANS.GMV_DT = DW_DAILY_EXCHANGE_RATES.day_of_trans
+AND DW_DAILY_EXCHANGE_RATES.curncy_id = DW_USERS_INFO.BLNG_CURNCY_ID
+
+where dw_checkout_trans.seller_id in (18116485)
+and dw_checkout_trans.gmv_dt BETWEEN TRUNC(ADD_MONTHS(CURRENT_DATE, -12), 'MM') AND LAST_DAY(ADD_MONTHS(CURRENT_DATE, -1))
+and dw_checkout_trans.auct_end_dt >= date_sub(TRUNC(ADD_MONTHS(CURRENT_DATE, -12), 'MM'), 7)
+and dw_checkout_trans.site_id in (77) 	
+and dw_checkout_trans.sale_type in (1,2,7,8,9,13)	
+and trim(upper(dw_checkout_trans.rprtd_wacko_yn)) = 'N'
+and PAID_IND = 1 
+and CHECKOUT_STATUS = 2 	
+group by 1;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_seller_gross_gmv_si_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+
+
+SELECT
+    "pls_adrate_effect_l12m" as insights_type,
+    "Seller" AS insights_level,
+    "atp-autoteile" AS insights_level_value,
+    (TRUNC(ADD_MONTHS(CURRENT_DATE, -12), 'MM') || " to " || LAST_DAY(ADD_MONTHS(CURRENT_DATE, -1))) as date_range,
+    ("77") as site_id,
+
+    date_format(elig_listings.cal_dt, 'MMM-yy') AS month_year,
+    date_format(elig_listings.cal_dt, 'yyyy-MM') AS yyyy_mm,
+	
+    COALESCE(AVG(CASE WHEN elig_listings.items > 0 THEN elig_listings.items END), 0) AS avg_total_eligible_listings,
+    COALESCE(AVG(CASE WHEN pls_listings.pls_items > 0 THEN pls_listings.pls_items END), 0) AS avg_pls_active_listings,	
+    COALESCE(AVG(CASE WHEN pls_listings.pls_items > 0 THEN pls_listings.pls_items/elig_listings.items END), 0) AS avg_pls_adoption,
+    COALESCE(AVG(CASE WHEN pls_adrate.pls_adrate > 0 THEN pls_adrate.pls_adrate END), 0) AS avg_pls_set_adrate,	
+    COALESCE(AVG(CASE WHEN pls_adrate.pls_sold_adrate > 0 THEN pls_adrate.pls_sold_adrate END), 0) AS avg_pls_sold_adrate,	
+    COALESCE(SUM(pls_metrics.pls_si), 0) AS pls_si,
+    COALESCE(SUM(pls_metrics.pls_gmv), 0) AS pls_gmv,
+    COALESCE(SUM(pls_metrics.pls_gmv) / NULLIF(SUM(pls_metrics.pls_si), 0), 0) AS pls_gmv_per_si,
+    COALESCE(AVG(CASE WHEN pls_listings.pls_items > 0 THEN pls_metrics.pls_gmv/pls_listings.pls_items END), 0) AS pls_gmv_per_adopted_listing,	
+    COALESCE(SUM(pls_metrics.pls_ad_fee), 0) AS pls_ad_fee,
+    COALESCE(SUM(seller_metrics.gross_gmv_bc) / NULLIF(SUM(seller_metrics.purchases), 0), 0) AS gross_gmv_per_si,
+    COALESCE(AVG(CASE WHEN elig_listings.items > 0 THEN seller_metrics.gross_gmv_bc/elig_listings.items END), 0) AS gross_gmv_per_eligible_listing
+
+FROM p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_elig_listings_l12m elig_listings
+LEFT JOIN p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pls_listings_l12m pls_listings ON elig_listings.cal_dt = pls_listings.cal_dt
+LEFT JOIN p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_PLS_ad_rate_l12m pls_adrate ON elig_listings.cal_dt = pls_adrate.cal_dt
+LEFT JOIN p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_adfee_l12m pls_metrics ON elig_listings.cal_dt = pls_metrics.cal_dt
+LEFT JOIN p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_seller_gross_gmv_si_ct seller_metrics ON elig_listings.cal_dt = seller_metrics.cal_dt
+
+GROUP BY 1,2,3,4,5,6,7
+ORDER BY 7;
+
+
+
+
+select 'sfa_metrics' as insights_type
+,"Seller" AS insights_level
+,"atp-autoteile" AS insights_level_value
+,a.flag as date_range
+,b.flag as date_range_comp
+,("77") as site_id
+
+,COALESCE(a.sfa_clicks, 0) as curr_sfa_clicks
+,COALESCE(b.sfa_clicks, 0) as prev_sfa_clicks
+,COALESCE((curr_sfa_clicks - prev_sfa_clicks) / NULLIF(prev_sfa_clicks, 0), 0) as change_sfa_clicks
+
+,COALESCE(m.sfa_si, 0) as curr_sfa_si
+,COALESCE(n.sfa_si, 0) as prev_sfa_si
+,COALESCE((curr_sfa_si - prev_sfa_si) / NULLIF(prev_sfa_si, 0), 0) AS change_sfa_si 
+
+,COALESCE(m.sfa_gmv, 0) as curr_sfa_sales 
+,COALESCE(n.sfa_gmv, 0) as prev_sfa_sales
+,COALESCE((curr_sfa_sales - prev_sfa_sales) / NULLIF(prev_sfa_sales, 0), 0) AS change_sfa_sales
+
+,COALESCE(m.sfa_ad_fee, 0) as curr_sfa_adspend 
+,COALESCE(n.sfa_ad_fee, 0) as prev_sfa_adspend
+,COALESCE((curr_sfa_adspend - prev_sfa_adspend) / NULLIF(prev_sfa_adspend, 0), 0) AS change_sfa_adspend
+
+,COALESCE(m.sfa_si/a.sfa_clicks, 0) as curr_sfa_cvr 
+,COALESCE(n.sfa_si/b.sfa_clicks, 0) as prev_sfa_cvr
+,COALESCE((curr_sfa_cvr - prev_sfa_cvr) / NULLIF(prev_sfa_cvr, 0), 0) as change_sfa_cvr
+
+,COALESCE(m.sfa_ad_fee/a.sfa_clicks, 0) as curr_sfa_cpc
+,COALESCE(n.sfa_ad_fee/b.sfa_clicks, 0) as prev_sfa_cpc
+,COALESCE((curr_sfa_cpc - prev_sfa_cpc) / NULLIF(prev_sfa_cpc, 0), 0) AS change_sfa_cpc
+
+,COALESCE(m.sfa_gmv/m.sfa_ad_fee, 0) as curr_sfa_roas
+,COALESCE(n.sfa_gmv/n.sfa_ad_fee, 0) as prev_sfa_roas
+,COALESCE((curr_sfa_roas - prev_sfa_roas) / NULLIF(prev_sfa_roas, 0), 0) as change_sfa_roas
+
+,COALESCE(m.sfa_ad_fee/m.sfa_gmv, 0) as curr_sfa_acos
+,COALESCE(n.sfa_ad_fee/n.sfa_gmv, 0) as prev_sfa_acos
+,COALESCE((curr_sfa_acos - prev_sfa_acos) / NULLIF(prev_sfa_acos, 0), 0) as change_sfa_acos
+
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_metrics_ct a
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_metrics_pt b on 1=1
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_adfee_ct m on 1=1
+left outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_adfee_pt n on 1=1
+;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sfa_item_si_gmv_adfee_ct purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+CREATE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sfa_item_si_gmv_adfee_ct USING PARQUET AS
+SELECT 
+    k.item_id,
+    lstg.AUCT_TITL as item_desc,
+    lstg.START_PRICE_LSTG_CURNCY as item_price,
+	cat.meta_categ_name,
+	cat.categ_lvl2_name,
+    SUM(CASE WHEN k.event_type_txt = 'SFAS' THEN k.item_sold_qty ELSE 0 END) AS sfa_si,    
+    SUM(CASE WHEN k.event_type_txt = 'SFAS' THEN k.sale_slr_blng_curncy_amt ELSE 0 END) AS sfa_gmv,   
+    SUM(CASE WHEN k.event_type_txt = 'SFACPC' THEN k.ad_fee_slr_blng_curncy_amt ELSE 0 END) AS sfa_ad_fee
+FROM ACCESS_VIEWS.PL_ORG_ADS_SALES_FACT k
+
+inner join access_views.dw_lstg_item lstg
+on lstg.item_id = k.item_id
+
+inner join access_views.dw_category_groupings cat
+on lstg.item_site_id = cat.site_id
+and lstg.leaf_categ_id = cat.leaf_categ_id
+
+WHERE FROM_UNIXTIME(k.EVENT_TM / 1000, 'yyyy-MM-dd') BETWEEN "2023-09-01" and "2024-08-31"
+    AND k.event_type_txt IN ('SFAS', 'SFACPC')
+    AND k.seller_id in (18116485)
+GROUP BY 1,2,3,4,5
+ORDER BY 7 DESC;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sfa_item_si_gmv_adfee_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+
+select 
+"sfa_top_sold_items" as insights_type,
+"Seller" AS insights_level,
+"atp-autoteile" AS insights_level_value,
+("2023-09-01" || " to " || "2024-08-31") as date_range,
+("77") as site_id,
+item_id,
+item_desc,
+item_price,
+sum(sfa_si) as sfa_si,
+sum(sfa_gmv) as sfa_gmv,
+sum(sfa_ad_fee) as sfa_ad_fee
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sfa_item_si_gmv_adfee_ct
+group by 1,2,3,4,5,6,7,8
+order by sfa_gmv desc
+limit 10;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sfa_clicks_seller_ct purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sfa_clicks_seller_ct USING PARQUET AS					 
+select  
+flag, 
+user_slctd_id, 
+meta_categ_name,
+categ_lvl2_name,
+SUM(CASE WHEN event_type_cd = 'SFA' THEN total_click_cnt ELSE 0 END) AS sfa_clicks_curr
+
+from (
+select
+("2023-09-01"||' to '||"2024-08-31") flag,
+user_slctd_id, 
+cal_dt,
+bpe.event_type_cd,
+bpe.item_id,
+lstg.AUCT_TITL as item_desc,
+cat.meta_categ_name,
+cat.categ_lvl2_name,
+bpe.total_click_cnt,
+bpe.off_ebay_click_cnt
+
+from bpe_v.pl_org_ads_imp_click_sd bpe 
+
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table items 
+on items.item_id = bpe.item_id
+
+inner join access_views.dw_lstg_item lstg
+on lstg.item_id = items.item_id
+
+inner join access_views.dw_category_groupings cat
+on lstg.item_site_id = cat.site_id
+and lstg.leaf_categ_id = cat.leaf_categ_id
+
+inner join ACCESS_VIEWS.dw_cal_dt cal 
+on from_unixtime(unix_timestamp(dt,'yyyyMMdd'),'yyyy-MM-dd') = cal.cal_dt
+
+where from_unixtime(unix_timestamp(dt,'yyyyMMdd'),'yyyy-MM-dd') between "2023-09-01" and "2024-08-31"
+group by 1,2,3,4,5,6,7,8,9,10
+) base
+group by 1,2,3,4;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sfa_clicks_seller_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+
+SELECT 
+	"sfa_top_categ_l2" as insights_type,
+	"Seller" AS insights_level,
+	"atp-autoteile" AS insights_level_value,
+	("2023-09-01" || " to " || "2024-08-31") as date_range,
+	("77") as site_id,
+    a.meta_categ_name,
+    a.categ_lvl2_name,
+    a.meta_categ_name || ' - ' || a.categ_lvl2_name as l2_category,
+    a.sfa_clicks,
+    b.sfa_gmv,
+    b.sfa_si,
+    COALESCE(b.sfa_si / NULLIF(a.sfa_clicks, 0), 0) AS sfa_cvr,
+    b.sfa_ad_fee
+FROM
+(
+    SELECT  
+        meta_categ_name,
+        categ_lvl2_name,
+        SUM(sfa_clicks_curr) AS sfa_clicks
+    FROM p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sfa_clicks_seller_ct
+    GROUP BY meta_categ_name, categ_lvl2_name
+) a
+LEFT JOIN
+(
+    SELECT  
+        meta_categ_name,
+        categ_lvl2_name,
+        SUM(sfa_si) AS sfa_si,
+        SUM(sfa_gmv) AS sfa_gmv,
+        SUM(sfa_ad_fee) AS sfa_ad_fee
+    FROM p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sfa_item_si_gmv_adfee_ct
+    GROUP BY meta_categ_name, categ_lvl2_name
+) b
+ON a.meta_categ_name = b.meta_categ_name
+AND a.categ_lvl2_name = b.categ_lvl2_name
+ORDER BY b.sfa_gmv DESC
+LIMIT 10;
+
+
+   
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_listings_base_ct purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_listings_base_ct USING PARQUET AS
+select /*+ MERGE(st) */
+pla.slr_id,
+    pla.item_id as pla_item_id,
+    pla.cal_dt as pla_active_dt
+from p_liszt_v.plcpc_bt_listing_daily pla
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+        on pla.item_id=st.item_id
+where
+cal_dt between date_add(CURRENT_DATE,-2) and date_add(CURRENT_DATE,-2) 
+group by 1,2,3; 
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_listings_base_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_listings_base_pt purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_listings_base_pt USING PARQUET AS
+select /*+ MERGE(st) */
+pla.slr_id,
+    pla.item_id as pla_item_id,
+    pla.cal_dt as pla_active_dt
+from p_liszt_v.plcpc_bt_listing_daily pla
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+        on pla.item_id=st.item_id
+where
+cal_dt between date_add(CURRENT_DATE,-367) and date_add(CURRENT_DATE,-367) 
+group by 1,2,3; 
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_active_listings_ct purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_active_listings_ct USING PARQUET AS
+select /*+ MERGE(st) */
+("2023-09-01"||' to '||"2024-08-31") as flag,user_slctd_id, 
+    count(distinct pla_item_id) as pla_items
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_listings_base_ct pla
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+        on pla.pla_item_id=st.item_id
+inner join access_views.dw_cal_dt cal 
+        on cal.cal_dt=pla.pla_active_dt
+where pla.pla_active_dt between  date_add(CURRENT_DATE,-2) and date_add(CURRENT_DATE,-2) 
+and cal_dt between  date_add(CURRENT_DATE,-2) and date_add(CURRENT_DATE,-2) 
+group by 1,2;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_active_listings_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_active_listings_pt purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_active_listings_pt USING PARQUET AS
+select /*+ MERGE(st) */
+("2022-09-01"||' to '||"2023-08-31")  as flag,user_slctd_id, 
+    count(distinct pla_item_id) as pla_items
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_listings_base_pt pla
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+        on pla.pla_item_id=st.item_id
+inner join access_views.dw_cal_dt cal 
+        on cal.cal_dt=pla.pla_active_dt
+where pla.pla_active_dt between  date_add(CURRENT_DATE,-367) and date_add(CURRENT_DATE,-367)
+and cal_dt between   date_add(CURRENT_DATE,-367) and date_add(CURRENT_DATE,-367)
+group by 1,2;   
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_active_listings_pt COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_avg_budget_ct purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_avg_budget_ct USING PARQUET AS
+select seller_id
+,avg(ads_fee_usd/daily_budget_amt_usd) as avg_cmpgn_budget_usage
+from
+(
+	select 
+	cmpgn_budget.slr_id as seller_id,
+	cmpgn_budget.cal_dt, 
+	COALESCE(sum(ads_fee_usd), 0) as ads_fee_usd,
+	COALESCE(sum(cmpgn_budget.daily_budget_amt_usd),0) as daily_budget_amt_usd
+
+	from
+	(
+		select 
+		slr_id,
+		ads_cmpgn_id,
+		cal_dt,
+		max(daily_budget_amt_usd) as daily_budget_amt_usd
+		from 
+		p_liszt_v.plcpc_at_cpc_active
+		where cal_dt between "2023-09-01" and "2024-08-31" 		and SLR_ID in (18116485)
+		group by 1,2,3
+	) as cmpgn_budget
+	left join (
+		select 
+		slr_id,
+		cal_dt,
+		ads_cmpgn_id,
+		cast(sum(ads_fee_usd) as decimal(20,2)) ads_fee_usd
+		from 
+		p_liszt_v.plcpc_at_ads_perf
+		where cal_dt between "2023-09-01" and "2024-08-31"  		and SLR_ID in (18116485)
+		group by 1,2,3
+	) as cmpgn_fee on cmpgn_budget.slr_id = cmpgn_fee.slr_id and cmpgn_budget.ads_cmpgn_id = cmpgn_fee.ads_cmpgn_id and cmpgn_budget.cal_dt = cmpgn_fee.cal_dt
+	group by 1,2
+) cmpgn group by 1;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_avg_budget_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_avg_budget_pt purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_avg_budget_pt USING PARQUET AS
+select seller_id
+,avg(ads_fee_usd/daily_budget_amt_usd) as avg_cmpgn_budget_usage
+from
+(
+	select 
+	cmpgn_budget.slr_id as seller_id,
+	cmpgn_budget.cal_dt, 
+	COALESCE(sum(ads_fee_usd), 0) as ads_fee_usd,
+	COALESCE(sum(cmpgn_budget.daily_budget_amt_usd),0) as daily_budget_amt_usd
+
+	from
+	(
+		select 
+		slr_id,
+		ads_cmpgn_id,
+		cal_dt,
+		max(daily_budget_amt_usd) as daily_budget_amt_usd
+		from 
+		p_liszt_v.plcpc_at_cpc_active
+		where cal_dt between "2022-09-01" and "2023-08-31" 		and SLR_ID in (18116485)
+		group by 1,2,3
+	) as cmpgn_budget
+	left join (
+		select 
+		slr_id,
+		cal_dt,
+		ads_cmpgn_id,
+		cast(sum(ads_fee_usd) as decimal(20,2)) ads_fee_usd
+		from 
+		p_liszt_v.plcpc_at_ads_perf
+		where cal_dt between "2022-09-01" and "2023-08-31"  		and SLR_ID in (18116485)
+		group by 1,2,3
+	) as cmpgn_fee on cmpgn_budget.slr_id = cmpgn_fee.slr_id and cmpgn_budget.ads_cmpgn_id = cmpgn_fee.ads_cmpgn_id and cmpgn_budget.cal_dt = cmpgn_fee.cal_dt
+	group by 1,2
+) cmpgn group by 1;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_avg_budget_pt COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+
+
+select 'pla_metrics' as insights_type
+,"Seller" AS insights_level
+,"atp-autoteile" AS insights_level_value
+,a.flag as date_range
+,b.flag as date_range_comp
+,("77") as site_id
+
+,COALESCE(m.pla_gmv_notdeduped, 0) as curr_pla_sales 
+,COALESCE(n.pla_gmv_notdeduped, 0) as prev_pla_sales
+,COALESCE(((curr_pla_sales - prev_pla_sales) / NULLIF(prev_pla_sales, 0)), 0) AS change_pla_sales
+
+,COALESCE(m.pla_ad_fee, 0) as curr_pla_adspend 
+,COALESCE(n.pla_ad_fee, 0) as prev_pla_adspend
+,COALESCE(((curr_pla_adspend - prev_pla_adspend) / NULLIF(prev_pla_adspend, 0)), 0) AS change_pla_adspend
+
+,COALESCE(m.pla_si_notdeduped, 0) as curr_pla_si
+,COALESCE(n.pla_si_notdeduped, 0) as prev_pla_si
+,COALESCE(((curr_pla_si - prev_pla_si) / NULLIF(prev_pla_si, 0)), 0) AS change_pla_si 
+
+
+,(a.pla_imps) as curr_pla_impressions
+,(b.pla_imps) as prev_pla_impressions
+,COALESCE((a.pla_imps - b.pla_imps)/b.pla_imps, 0) as change_pla_impressions
+
+,a.pla_clicks/a.pla_imps as curr_pla_ctr 
+,b.pla_clicks/b.pla_imps as prev_pla_ctr
+,COALESCE((curr_pla_ctr - prev_pla_ctr)/prev_pla_ctr, 0) as change_pla_ctr
+
+,m.pla_si_notdeduped/a.pla_clicks as curr_pla_cvr 
+,n.pla_si_notdeduped/b.pla_clicks as prev_pla_cvr
+,COALESCE((curr_pla_cvr - prev_pla_cvr)/prev_pla_cvr, 0) as change_pla_cvr
+
+,ifnull(m.pla_gmv_notdeduped/m.pla_ad_fee,0) as curr_pla_roas
+,ifnull(n.pla_gmv_notdeduped/n.pla_ad_fee,0) as prev_pla_roas
+,COALESCE((curr_pla_roas - prev_pla_roas)/prev_pla_roas, 0) as change_pla_roas
+
+,ifnull(m.pla_ad_fee/m.pla_gmv_notdeduped,0) as curr_pla_acos
+,ifnull(n.pla_ad_fee/n.pla_gmv_notdeduped,0) as prev_pla_acos
+,COALESCE((curr_pla_acos - prev_pla_acos)/prev_pla_acos, 0) as change_pla_acos
+
+,ifnull(i.pla_items/g.items,0) as curr_pla_listing_adoption
+,ifnull(j.pla_items/h.items,0) as prev_pla_listing_adoption
+,COALESCE((curr_pla_listing_adoption - prev_pla_listing_adoption)/prev_pla_listing_adoption, 0) as change_pla_listing_adoption
+
+,k.avg_cmpgn_budget_usage as curr_pla_budget_utilization
+,l.avg_cmpgn_budget_usage as prev_pla_budget_utilization
+,COALESCE((curr_pla_budget_utilization - prev_pla_budget_utilization)/prev_pla_budget_utilization, 0) as change_pla_budget_utilization
+
+
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_metrics_ct a
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_metrics_pt b
+on 1=1
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_listings_ct g
+on 1=1
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_listings_pt h
+on 1=1
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_active_listings_ct i 
+on 1=1
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_active_listings_pt j 
+on 1=1
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_avg_budget_ct k
+on 1=1
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_avg_budget_pt l
+on 1=1
+
+left outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_adfee_ct m
+on 1=1
+
+left outer join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_adfee_pt n
+on 1=1;
+ 
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_metrics_l1_ct purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_metrics_l1_ct USING PARQUET AS					 
+select  
+flag, 
+user_slctd_id,
+meta_categ_name,
+SUM(total_imp_cnt) AS total_imprsns_curr,
+SUM(CASE WHEN event_type_cd = 'PL' THEN total_imp_cnt ELSE 0 END) AS pl_imps_curr,
+SUM(CASE WHEN event_type_cd = 'PLP' THEN total_imp_cnt ELSE 0 END) AS pla_imps_curr,
+SUM(CASE WHEN event_type_cd = 'Organic' THEN total_imp_cnt ELSE 0 END) AS organic_impressions_curr,
+
+SUM(total_click_cnt) AS total_clicks_curr,
+SUM(CASE WHEN event_type_cd = 'PL' THEN total_click_cnt ELSE 0 END) AS pl_clicks_curr,
+SUM(CASE WHEN event_type_cd = 'PLP' THEN total_click_cnt ELSE 0 END) AS pla_clicks_curr,
+SUM(CASE WHEN event_type_cd = 'Organic' THEN total_click_cnt ELSE 0 END) AS organic_clicks_curr
+
+from (
+select
+("2023-09-01"||' to '||"2024-08-31") flag,
+user_slctd_id,
+bpe.dt,
+bpe.event_type_cd,
+items.meta_categ_name,
+bpe.item_id,
+bpe.total_imp_cnt,
+bpe.srp_top20_slot_imp_cnt,
+bpe.srp_rest_slot_imp_cnt,
+bpe.merch_imp_cnt,
+bpe.total_click_cnt,
+bpe.ebay_click_cnt,
+bpe.off_ebay_click_cnt
+from bpe_v.pl_org_ads_imp_click_sd bpe 
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table items 
+on items.item_id=bpe.item_id
+inner join ACCESS_VIEWS.dw_cal_dt cal 
+on from_unixtime(unix_timestamp(dt,'yyyyMMdd'),'yyyy-MM-dd')=cal.cal_dt
+where from_unixtime(unix_timestamp(dt,'yyyyMMdd'),'yyyy-MM-dd') between "2023-09-01" and "2024-08-31"
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13
+) base
+group by 1,2,3;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_metrics_l1_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_listings_l1_ct purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_listings_l1_ct USING PARQUET AS
+select
+("2023-09-01"||' to '||"2024-08-31") as flag,
+user_slctd_id,
+sl.meta_categ_name, 	   	   
+count(distinct case when cal_dt = date_add(CURRENT_DATE,-2) then lstg.item_id  end) items
+
+from access_views.dw_lstg_item lstg
+
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table sl
+on lstg.item_id=sl.item_id
+
+inner join access_views.dw_category_groupings cat
+on lstg.item_site_id = cat.site_id
+and lstg.leaf_categ_id =cat.leaf_categ_id
+
+inner join access_views.dw_cal_dt cal
+on cal.cal_dt between lstg.auct_start_dt and lstg.auct_end_dt
+
+left join access_views.pl_elgbl_cats elg
+on elg.site_id =lstg.item_site_id
+and elg.leaf_categ_id = lstg.leaf_categ_id
+
+left join ACCESS_VIEWS.DW_GEM2_CMN_STCKOUT_HIST s 
+on lstg.item_id=s.lstg_id 
+and cal.cal_date between start_dt and end_dt 
+
+where 1=1
+and cal_dt BETWEEN date_add(CURRENT_DATE,-2) and date_add(CURRENT_DATE,-2) and lstg.auct_end_dt >= cal_dt and lstg.auct_start_dt <= cal_dt and lower(wacko_yn) = lower('N')  and auct_type_code in (7,9)
+and elg.leaf_categ_id is not null
+and cat.sap_category_id not in (5,7,41,23,-999)
+
+and s.lstg_id is null and cat.site_id in (77) group by 1,2,3;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_listings_l1_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pls_listings_l1_ct purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pls_listings_l1_ct USING PARQUET AS
+select /*+ MERGE(st) */
+("2023-09-01"||' to '||"2024-08-31") as flag, 
+user_slctd_id,
+st.meta_categ_name,   	   
+count(distinct pls.item_id) as pls_items
+from p_ads_analytics_t.PL_Listing_Daily pls
+inner join p_ads_analytics_t.pl_campaign_daily b 
+on pls.ads_cmpgn_id = b.ads_cmpgn_id
+and pls.cal_dt = b.cal_dt 
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+on pls.item_id=st.item_id
+inner join access_views.dw_cal_dt cal 
+on cal.cal_dt = pls.cal_dt		   
+where pls.cal_dt between date_add(CURRENT_DATE,-2) and date_add(CURRENT_DATE,-2) 
+and (b.cmpgn_sts_id is null or b.cmpgn_sts_id in (1,7))
+group by 1,2,3;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pls_listings_l1_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_total_trx_metrics_l1_ct purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_total_trx_metrics_l1_ct USING PARQUET AS
+select /*+ MERGE(st) */
+("2023-09-01"||' to '||"2024-08-31") flag,
+st.meta_categ_name, 
+st.user_slctd_id,   
+sum(ck.core_item_cnt) as total_si   	   
+
+from ACCESS_VIEWS.dw_checkout_trans ck
+inner join ACCESS_VIEWS.dw_cal_dt cal 
+on cal.cal_dt = ck.gmv_dt
+
+inner join ACCESS_VIEWS.dw_category_groupings cmp 
+on cmp.leaf_categ_id = ck.leaf_categ_id 
+and cmp.site_id = ck.site_id
+
+inner join ACCESS_VIEWS.dw_lstg_item itm 
+on itm.item_id=ck.item_id
+
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+on ck.item_id=st.item_id		   
+
+where ck.gmv_dt between  "2023-09-01" and "2024-08-31"
+and !ck.sale_type in (10,12,15)
+and !cmp.sap_category_id in (5,7,41,23,-999)
+and lower(ck.rprtd_wacko_yn)=lower('N')
+and ck.site_id in (77)
+and PAID_IND = 1 
+group by 1,2,3;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_total_trx_metrics_l1_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_dual_attribution_trans_ct purge;
+CREATE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_dual_attribution_trans_ct USING PARQUET AS
+SELECT 
+    trans_id, 
+    COUNT(DISTINCT event_type_txt) AS event_type_count
+FROM ACCESS_VIEWS.PL_ORG_ADS_SALES_FACT k
+INNER JOIN p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+ON st.item_id = k.item_id
+WHERE event_type_txt IN ('PLS', 'PLPS')
+AND FROM_UNIXTIME(EVENT_TM / 1000, 'yyyy-MM-dd') BETWEEN "2023-09-01" and "2024-08-31"
+GROUP BY trans_id
+HAVING COUNT(DISTINCT event_type_txt) > 1;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_dual_attribution_trans_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_l1_ct purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+CREATE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_l1_ct USING PARQUET AS
+SELECT 
+    st.meta_categ_name,
+    st.user_slctd_id,
+    SUM(CASE WHEN k.event_type_txt = 'PLS' THEN k.item_sold_qty ELSE 0 END) AS pls_si,
+    SUM(CASE WHEN k.event_type_txt = 'PLS' THEN k.sale_slr_blng_curncy_amt ELSE 0 END) AS pls_gmv_bc,
+    SUM(CASE WHEN k.event_type_txt = 'PLPS' AND t.trans_id IS NULL THEN k.item_sold_qty ELSE 0 END) AS pla_si,
+    SUM(CASE WHEN k.event_type_txt = 'PLPS' THEN k.item_sold_qty ELSE 0 END) AS pla_si_notdeduped,
+    SUM(CASE WHEN k.event_type_txt = 'PLPS' AND t.trans_id IS NULL THEN k.sale_slr_blng_curncy_amt ELSE 0 END) AS pla_gmv_bc,
+    SUM(CASE WHEN k.event_type_txt = 'PLPS' THEN k.sale_slr_blng_curncy_amt ELSE 0 END) AS pla_gmv_notdeduped_bc
+FROM ACCESS_VIEWS.PL_ORG_ADS_SALES_FACT k
+INNER JOIN p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+ON st.item_id = k.item_id
+LEFT JOIN p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_dual_attribution_trans_ct t 
+ON k.trans_id = t.trans_id
+WHERE k.event_type_txt IN ('PLS', 'PLPS')
+AND FROM_UNIXTIME(k.EVENT_TM / 1000, 'yyyy-MM-dd') BETWEEN "2023-09-01" and "2024-08-31"
+GROUP BY st.meta_categ_name, st.user_slctd_id;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_l1_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_listings_base_l1_ct purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_listings_base_l1_ct USING PARQUET AS
+select
+pla.slr_id,
+pla.item_id as pla_item_id,
+pla.cal_dt as pla_active_dt
+from p_liszt_v.plcpc_bt_listing_daily pla
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+        on pla.item_id=st.item_id
+where
+cal_dt between date_add(CURRENT_DATE,-2) and date_add(CURRENT_DATE,-2) 
+group by 1,2,3; 
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_listings_base_l1_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pla_listings_l1_ct purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pla_listings_l1_ct USING PARQUET AS
+select /*+ MERGE(st) */
+("2023-09-01"||' to '||"2024-08-31") as flag,
+user_slctd_id,
+st.meta_categ_name, 
+count(distinct pla_item_id) as pla_items
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_listings_base_l1_ct pla
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+        on pla.pla_item_id=st.item_id
+inner join access_views.dw_cal_dt cal 
+        on cal.cal_dt=pla.pla_active_dt
+where pla.pla_active_dt between  date_add(CURRENT_DATE,-2) and date_add(CURRENT_DATE,-2) 
+and cal_dt between  date_add(CURRENT_DATE,-2) and date_add(CURRENT_DATE,-2) 
+group by 1,2,3;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pla_listings_l1_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pls_ad_rate_l1_ct purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pls_ad_rate_l1_ct USING PARQUET AS
+select
+("2023-09-01"||' to '||"2024-08-31") as flag
+,user_slctd_id
+,x.meta_categ_name
+,avg(LSTG_BID_PCT)/100 as pls_adrate
+,avg(SOLD_BID_PCT)/100 as pls_sold_adrate
+
+from access_views.pl_item_mtrc_sd perf_metric
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table x
+on x.item_id = 	perf_metric.item_id
+where item_site_id in (77) 
+and to_date(DT,'yyyyMMdd') BETWEEN  "2023-09-01" and "2024-08-31" 
+group by 1,2,3;
+
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pls_ad_rate_l1_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pls_compttv_ad_rate_l1_ct purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pls_compttv_ad_rate_l1_ct USING PARQUET AS
+select 
+meta_categ_name, avg(pls_sold_adrate) as pls_compttv_sold_adrate
+from
+(
+select
+perf_metric.slr_id
+,("2023-09-01"||' to '||"2024-08-31") as flag
+,x.meta_categ_name
+,avg(SOLD_BID_PCT)/100 as pls_sold_adrate
+,sum(PL_GMV) as PL_GMV_USD_AMT
+,row_number () over (partition by x.meta_categ_name order by sum(PL_GMV) desc) rk
+from access_views.pl_item_mtrc_sd perf_metric
+inner join (select leaf_categ_id, meta_categ_name from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table group by 1,2) x
+on x.LEAF_CATEG_ID = perf_metric.LEAF_CATEG_ID
+where perf_metric.item_site_id in (77) 
+and perf_metric.slr_id not in (18116485)
+and PL_LSTG_CNT>0
+and to_date(DT,'yyyyMMdd') BETWEEN  "2023-09-01" and "2024-08-31" 
+group by 1,2,3
+) base
+where rk <= 10 group by 1;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pls_compttv_ad_rate_l1_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+
+select 
+'top_l1_categ' AS insights_type,
+"Seller" AS insights_level,
+"atp-autoteile" AS insights_level_value,
+("2023-09-01"||' to '||"2024-08-31") AS date_range,
+COALESCE(a.rank_category, 0) AS rank_category,
+COALESCE(a.meta_categ_name, 0) AS l1_category_name,
+COALESCE(a.share_of_gmv, 0) AS share_of_gmv,
+COALESCE(a.buyers, 0) AS buyers,
+COALESCE(a.avg_purchases_daily, 0) AS avg_purchases_daily,
+
+COALESCE(b.curr_organic_cvr, 0) AS organic_cvr,
+COALESCE(b.curr_pls_cvr, 0) AS pls_cvr,
+COALESCE(b.curr_pla_cvr, 0) AS pla_cvr,
+COALESCE(b.curr_pls_listing_adoption, 0) AS pls_listing_adoption,
+COALESCE(b.curr_pla_listing_adoption, 0) AS pla_listing_adoption,
+
+COALESCE((ROUND(b.curr_pls_cvr*100, 1) - ROUND(b.curr_organic_cvr*100, 1)) / ROUND(b.curr_organic_cvr*100, 1), 0) AS pls_cvr_uplift,
+COALESCE((ROUND(b.curr_pla_cvr*100, 1) - ROUND(b.curr_organic_cvr*100, 1)) / ROUND(b.curr_organic_cvr*100, 1), 0) AS pla_cvr_uplift,
+
+COALESCE(b.curr_pls_set_adrate, 0) AS pls_set_adrate,
+COALESCE(b.curr_pls_sold_adrate, 0) AS pls_sold_adrate,
+COALESCE(b.pls_compttv_sold_adrate, 0) AS pls_compttv_sold_adrate
+
+FROM p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_top10_l1_seller a
+
+left join 
+(
+select
+a.meta_categ_name
+
+,case when COALESCE((b.total_si - c.pls_si - c.pla_si), 0) < 0 then 0 else COALESCE((b.total_si - c.pls_si - c.pla_si), 0) end as organic_si
+,case when COALESCE(a.organic_clicks_curr, 0) < 0 then 0 else COALESCE(a.organic_clicks_curr, 0) end as organic_clicks
+
+,COALESCE(c.pls_si, 0) as pls_si
+,COALESCE(a.pl_clicks_curr, 0) as pls_clicks
+
+,COALESCE(organic_si / organic_clicks, 0) as curr_organic_cvr
+,COALESCE(c.pls_si / a.pl_clicks_curr, 0) as curr_pls_cvr
+,COALESCE(c.pla_si_notdeduped / a.pla_clicks_curr, 0) as curr_pla_cvr
+
+,COALESCE(e.pls_items / d.items, 0) as curr_pls_listing_adoption
+,COALESCE(f.pla_items / d.items, 0) as curr_pla_listing_adoption
+
+,COALESCE(g.pls_adrate, 0) as curr_pls_set_adrate
+,COALESCE(g.pls_sold_adrate, 0) as curr_pls_sold_adrate
+,COALESCE(h.pls_compttv_sold_adrate, 0) as pls_compttv_sold_adrate
+
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_metrics_l1_ct a
+
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_total_trx_metrics_l1_ct b
+on a.meta_categ_name = b.meta_categ_name
+
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_l1_ct c
+on a.meta_categ_name = c.meta_categ_name
+
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_listings_l1_ct d
+on a.meta_categ_name = d.meta_categ_name
+
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pls_listings_l1_ct e
+on a.meta_categ_name = e.meta_categ_name
+
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pla_listings_l1_ct f
+on a.meta_categ_name = f.meta_categ_name
+
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pls_ad_rate_l1_ct g
+on a.meta_categ_name = g.meta_categ_name
+
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pls_compttv_ad_rate_l1_ct h
+on a.meta_categ_name = h.meta_categ_name
+
+) b on a.meta_categ_name = b.meta_categ_name
+;
+
+
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_metrics_l2_ct purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_metrics_l2_ct USING PARQUET AS						 
+select  
+flag, 
+user_slctd_id,
+meta_categ_name,
+categ_lvl2_name,
+SUM(total_imp_cnt) AS total_imprsns_curr,
+SUM(CASE WHEN event_type_cd = 'PL' THEN total_imp_cnt ELSE 0 END) AS pl_imps_curr,
+SUM(CASE WHEN event_type_cd = 'PLP' THEN total_imp_cnt ELSE 0 END) AS pla_imps_curr,
+SUM(CASE WHEN event_type_cd = 'Organic' THEN total_imp_cnt ELSE 0 END) AS organic_impressions_curr,
+SUM(total_click_cnt) AS total_clicks_curr,
+SUM(CASE WHEN event_type_cd = 'PL' THEN total_click_cnt ELSE 0 END) AS pl_clicks_curr,
+SUM(CASE WHEN event_type_cd = 'PLP' THEN total_click_cnt ELSE 0 END) AS pla_clicks_curr,
+SUM(CASE WHEN event_type_cd = 'Organic' THEN total_click_cnt ELSE 0 END) AS organic_clicks_curr
+
+from (
+select
+("2023-09-01"||' to '||"2024-08-31") flag,
+user_slctd_id,
+bpe.dt,
+bpe.event_type_cd,
+items.meta_categ_name,
+items.categ_lvl2_name,
+bpe.item_id,
+bpe.total_imp_cnt,
+bpe.srp_top20_slot_imp_cnt,
+bpe.srp_rest_slot_imp_cnt,
+bpe.merch_imp_cnt,
+bpe.total_click_cnt,
+bpe.ebay_click_cnt,
+bpe.off_ebay_click_cnt
+from bpe_v.pl_org_ads_imp_click_sd bpe 
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table items 
+on items.item_id=bpe.item_id
+inner join ACCESS_VIEWS.dw_cal_dt cal 
+on from_unixtime(unix_timestamp(dt,'yyyyMMdd'),'yyyy-MM-dd')=cal.cal_dt
+where from_unixtime(unix_timestamp(dt,'yyyyMMdd'),'yyyy-MM-dd') between "2023-09-01" and "2024-08-31"
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14
+) base
+group by 1,2,3,4;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_metrics_l2_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_listings_l2_ct purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_listings_l2_ct USING PARQUET AS
+select
+("2023-09-01"||' to '||"2024-08-31") as flag,
+user_slctd_id,
+sl.meta_categ_name,
+sl.categ_lvl2_name, 	   	   
+count(distinct case when cal_dt = date_add(CURRENT_DATE,-2) then lstg.item_id  end) items
+
+from access_views.dw_lstg_item lstg
+
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table sl
+on lstg.item_id=sl.item_id
+
+inner join access_views.dw_category_groupings cat
+on lstg.item_site_id = cat.site_id
+and lstg.leaf_categ_id =cat.leaf_categ_id
+
+inner join access_views.dw_cal_dt cal
+on cal.cal_dt between lstg.auct_start_dt and lstg.auct_end_dt
+
+left join access_views.pl_elgbl_cats elg
+on elg.site_id =lstg.item_site_id
+and elg.leaf_categ_id = lstg.leaf_categ_id
+
+left join ACCESS_VIEWS.DW_GEM2_CMN_STCKOUT_HIST s 
+on lstg.item_id=s.lstg_id 
+and cal.cal_date between start_dt and end_dt 
+
+where 1=1
+and cal_dt BETWEEN date_add(CURRENT_DATE,-2) and date_add(CURRENT_DATE,-2) and lstg.auct_end_dt >= cal_dt and lstg.auct_start_dt <= cal_dt and lower(wacko_yn) = lower('N')  and auct_type_code in (7,9)
+and elg.leaf_categ_id is not null
+and cat.sap_category_id not in (5,7,41,23,-999)
+
+and s.lstg_id is null and cat.site_id in (77) group by 1,2,3,4;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_listings_l2_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pls_listings_l2_ct purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pls_listings_l2_ct USING PARQUET AS
+select /*+ MERGE(st) */
+("2023-09-01"||' to '||"2024-08-31") as flag, 
+user_slctd_id,
+st.meta_categ_name,
+st.categ_lvl2_name,   	   
+count(distinct pls.item_id) as pls_items
+from p_ads_analytics_t.PL_Listing_Daily pls
+inner join p_ads_analytics_t.pl_campaign_daily b 
+on pls.ads_cmpgn_id = b.ads_cmpgn_id
+and pls.cal_dt = b.cal_dt 
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+on pls.item_id=st.item_id
+inner join access_views.dw_cal_dt cal 
+on cal.cal_dt = pls.cal_dt		   
+where pls.cal_dt between date_add(CURRENT_DATE,-2) and date_add(CURRENT_DATE,-2) 
+and (b.cmpgn_sts_id is null or b.cmpgn_sts_id in (1,7))
+group by 1,2,3,4;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pls_listings_l2_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_total_trx_metrics_l2_ct purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_total_trx_metrics_l2_ct USING PARQUET AS
+select
+("2023-09-01"||' to '||"2024-08-31") flag,
+st.meta_categ_name,
+st.categ_lvl2_name,
+st.user_slctd_id,   
+sum(ck.core_item_cnt) as total_si   	   
+
+from ACCESS_VIEWS.dw_checkout_trans ck
+inner join ACCESS_VIEWS.dw_cal_dt cal 
+on cal.cal_dt = ck.gmv_dt
+
+inner join ACCESS_VIEWS.dw_category_groupings cmp 
+on cmp.leaf_categ_id = ck.leaf_categ_id 
+and cmp.site_id = ck.site_id
+
+inner join ACCESS_VIEWS.dw_lstg_item itm 
+on itm.item_id=ck.item_id
+
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+on ck.item_id=st.item_id		   
+
+where ck.gmv_dt between  "2023-09-01" and "2024-08-31"
+and !ck.sale_type in (10,12,15)
+and !cmp.sap_category_id in (5,7,41,23,-999)
+and lower(ck.rprtd_wacko_yn)=lower('N')
+and ck.site_id in (77)
+and PAID_IND = 1 
+group by 1,2,3,4;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_total_trx_metrics_l2_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_l2_ct purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+CREATE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_l2_ct USING PARQUET AS
+SELECT 
+    st.meta_categ_name,
+    st.categ_lvl2_name,
+    st.user_slctd_id,
+    SUM(CASE WHEN k.event_type_txt = 'PLS' THEN k.item_sold_qty ELSE 0 END) AS pls_si,
+    SUM(CASE WHEN k.event_type_txt = 'PLS' THEN k.sale_slr_blng_curncy_amt ELSE 0 END) AS pls_gmv_bc,
+    SUM(CASE WHEN k.event_type_txt = 'PLPS' AND t.trans_id IS NULL THEN k.item_sold_qty ELSE 0 END) AS pla_si,
+    SUM(CASE WHEN k.event_type_txt = 'PLPS' THEN k.item_sold_qty ELSE 0 END) AS pla_si_notdeduped,
+    SUM(CASE WHEN k.event_type_txt = 'PLPS' AND t.trans_id IS NULL THEN k.sale_slr_blng_curncy_amt ELSE 0 END) AS pla_gmv_bc,
+    SUM(CASE WHEN k.event_type_txt = 'PLPS' THEN k.sale_slr_blng_curncy_amt ELSE 0 END) AS pla_gmv_notdeduped_bc
+FROM ACCESS_VIEWS.PL_ORG_ADS_SALES_FACT k
+INNER JOIN p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+ON st.item_id = k.item_id
+LEFT JOIN p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_dual_attribution_trans_ct t 
+ON k.trans_id = t.trans_id
+WHERE k.event_type_txt IN ('PLS', 'PLPS')
+AND FROM_UNIXTIME(k.EVENT_TM / 1000, 'yyyy-MM-dd') BETWEEN "2023-09-01" and "2024-08-31"
+GROUP BY st.meta_categ_name, st.categ_lvl2_name, st.user_slctd_id;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_l2_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_listings_base_l2_ct purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_listings_base_l2_ct USING PARQUET AS
+select
+pla.slr_id,
+pla.item_id as pla_item_id,
+pla.cal_dt as pla_active_dt
+from p_liszt_v.plcpc_bt_listing_daily pla
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+        on pla.item_id=st.item_id
+where
+cal_dt between date_add(CURRENT_DATE,-2) and date_add(CURRENT_DATE,-2) 
+group by 1,2,3; 
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_listings_base_l2_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pla_listings_l2_ct purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pla_listings_l2_ct USING PARQUET AS
+select
+("2023-09-01"||' to '||"2024-08-31") as flag,
+user_slctd_id,
+st.meta_categ_name,
+st.categ_lvl2_name,
+count(distinct pla_item_id) as pla_items
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_listings_base_l2_ct pla
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+        on pla.pla_item_id=st.item_id
+inner join access_views.dw_cal_dt cal 
+        on cal.cal_dt=pla.pla_active_dt
+where pla.pla_active_dt between  date_add(CURRENT_DATE,-2) and date_add(CURRENT_DATE,-2) 
+and cal_dt between  date_add(CURRENT_DATE,-2) and date_add(CURRENT_DATE,-2) 
+group by 1,2,3,4;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pla_listings_l2_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pls_ad_rate_l2_ct purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pls_ad_rate_l2_ct USING PARQUET AS
+select
+("2023-09-01"||' to '||"2024-08-31") as flag
+,user_slctd_id
+,x.meta_categ_name
+,x.categ_lvl2_name
+,avg(LSTG_BID_PCT)/100 as pls_adrate
+,avg(SOLD_BID_PCT)/100 as pls_sold_adrate
+
+from access_views.pl_item_mtrc_sd perf_metric
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table x
+on x.item_id = 	perf_metric.item_id
+where item_site_id in (77) 
+and to_date(DT,'yyyyMMdd') BETWEEN  "2023-09-01" and "2024-08-31" 
+group by 1,2,3,4;
+
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pls_ad_rate_l2_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pls_compttv_ad_rate_l2_ct purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pls_compttv_ad_rate_l2_ct USING PARQUET AS
+select 
+meta_categ_name, categ_lvl2_name, avg(pls_sold_adrate) as pls_compttv_sold_adrate
+from
+(
+select
+perf_metric.slr_id
+,("2023-09-01"||' to '||"2024-08-31") as flag
+,x.meta_categ_name
+,x.categ_lvl2_name
+,avg(SOLD_BID_PCT)/100 as pls_sold_adrate
+,sum(PL_GMV) as PL_GMV_USD_AMT
+,row_number () over (partition by x.meta_categ_name, x.categ_lvl2_name order by sum(PL_GMV) desc) rk
+from access_views.pl_item_mtrc_sd perf_metric
+inner join (select leaf_categ_id, meta_categ_name, categ_lvl2_name from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table group by 1,2,3) x
+on x.LEAF_CATEG_ID = perf_metric.LEAF_CATEG_ID
+where perf_metric.item_site_id in (77) 
+and perf_metric.slr_id not in (18116485)
+and PL_LSTG_CNT>0
+and to_date(DT,'yyyyMMdd') BETWEEN  "2023-09-01" and "2024-08-31" 
+group by 1,2,3,4
+) base
+where rk <= 10 group by 1,2;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pls_compttv_ad_rate_l2_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+
+
+select 
+'top_l2_categ' AS insights_type,
+"Seller" AS insights_level,
+"atp-autoteile" AS insights_level_value,
+("2023-09-01"||' to '||"2024-08-31") AS date_range,
+COALESCE(a.rank_category, 0) AS rank_category,
+COALESCE(a.meta_categ_name || ' - ' || a.categ_lvl2_name, 0) AS l2_category_name,
+COALESCE(a.share_of_gmv, 0) AS share_of_gmv,
+COALESCE(a.buyers, 0) AS buyers,
+COALESCE(a.avg_purchases_daily, 0) AS avg_purchases_daily,
+
+COALESCE(b.curr_organic_cvr, 0) AS organic_cvr,
+COALESCE(b.curr_pls_cvr, 0) AS pls_cvr,
+COALESCE(b.curr_pla_cvr, 0) AS pla_cvr,
+COALESCE(b.curr_pls_listing_adoption, 0) AS pls_listing_adoption,
+COALESCE(b.curr_pla_listing_adoption, 0) AS pla_listing_adoption,
+
+COALESCE((ROUND(b.curr_pls_cvr*100, 1) - ROUND(b.curr_organic_cvr*100, 1)) / ROUND(b.curr_organic_cvr*100, 1), 0) AS pls_cvr_uplift,
+COALESCE((ROUND(b.curr_pla_cvr*100, 1) - ROUND(b.curr_organic_cvr*100, 1)) / ROUND(b.curr_organic_cvr*100, 1), 0) AS pla_cvr_uplift,
+
+COALESCE(b.curr_pls_set_adrate, 0) AS pls_set_adrate,
+COALESCE(b.curr_pls_sold_adrate, 0) AS pls_sold_adrate,
+COALESCE(b.pls_compttv_sold_adrate, 0) AS pls_compttv_sold_adrate
+
+FROM p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_top10_l2_seller a
+
+left join 
+(
+select
+a.meta_categ_name
+,a.categ_lvl2_name
+
+,case when COALESCE((b.total_si - c.pls_si - c.pla_si), 0) < 0 then 0 else COALESCE((b.total_si - c.pls_si - c.pla_si), 0) end as organic_si
+,case when COALESCE(a.organic_clicks_curr, 0) < 0 then 0 else COALESCE(a.organic_clicks_curr, 0) end as organic_clicks
+
+,COALESCE(c.pls_si, 0) as pls_si
+,COALESCE(a.pl_clicks_curr, 0) as pls_clicks
+
+,COALESCE(organic_si / organic_clicks, 0) as curr_organic_cvr
+,COALESCE(c.pls_si / a.pl_clicks_curr, 0) as curr_pls_cvr
+,COALESCE(c.pla_si_notdeduped / a.pla_clicks_curr, 0) as curr_pla_cvr
+
+,COALESCE(e.pls_items / d.items, 0) as curr_pls_listing_adoption
+,COALESCE(f.pla_items / d.items, 0) as curr_pla_listing_adoption
+
+,COALESCE(g.pls_adrate, 0) as curr_pls_set_adrate
+,COALESCE(g.pls_sold_adrate, 0) as curr_pls_sold_adrate
+,COALESCE(h.pls_compttv_sold_adrate, 0) as pls_compttv_sold_adrate
+
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_metrics_l2_ct a
+
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_total_trx_metrics_l2_ct b
+on a.meta_categ_name = b.meta_categ_name and a.categ_lvl2_name = b.categ_lvl2_name
+
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_l2_ct c
+on a.meta_categ_name = c.meta_categ_name and a.categ_lvl2_name = c.categ_lvl2_name
+
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_listings_l2_ct d
+on a.meta_categ_name = d.meta_categ_name and a.categ_lvl2_name = d.categ_lvl2_name
+
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pls_listings_l2_ct e
+on a.meta_categ_name = e.meta_categ_name and a.categ_lvl2_name = e.categ_lvl2_name
+
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pla_listings_l2_ct f
+on a.meta_categ_name = f.meta_categ_name and a.categ_lvl2_name = f.categ_lvl2_name
+
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pls_ad_rate_l2_ct g
+on a.meta_categ_name = g.meta_categ_name and a.categ_lvl2_name = g.categ_lvl2_name
+
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pls_compttv_ad_rate_l2_ct h
+on a.meta_categ_name = h.meta_categ_name and a.categ_lvl2_name = h.categ_lvl2_name
+
+) b on a.meta_categ_name = b.meta_categ_name and a.categ_lvl2_name = b.categ_lvl2_name
+;
+
+
+
+	  
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_daily_traffic_pl_org_seller_ct purge;
+set spark.sql.optimizer.dynamicPartitionPruning.enabled=false;
+
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_daily_traffic_pl_org_seller_ct USING PARQUET AS					 
+select  
+flag, 
+cal_dt,
+user_slctd_id, 
+SUM(total_imp_cnt) AS total_imprsns_curr,
+SUM(CASE WHEN event_type_cd = 'PL' THEN total_imp_cnt ELSE 0 END) AS pl_imps_curr,
+SUM(CASE WHEN event_type_cd = 'PLP' THEN total_imp_cnt ELSE 0 END) AS pla_imps_curr,
+SUM(CASE WHEN event_type_cd = 'Organic' THEN total_imp_cnt ELSE 0 END) AS organic_impressions_curr,
+SUM(total_click_cnt) AS total_clicks_curr,
+SUM(CASE WHEN event_type_cd = 'PL' THEN total_click_cnt ELSE 0 END) AS pl_clicks_curr,
+SUM(CASE WHEN event_type_cd = 'PLP' THEN total_click_cnt ELSE 0 END) AS pla_clicks_curr,
+SUM(CASE WHEN event_type_cd = 'Organic' THEN total_click_cnt ELSE 0 END) AS organic_clicks_curr
+
+from (
+select
+("2023-09-01"||' to '||"2024-08-31") flag,
+user_slctd_id, 
+prd_id,
+cal_dt,
+month_of_year_id,
+year_id,
+bpe.event_type_cd,
+bpe.item_id,
+bpe.total_imp_cnt,
+bpe.srp_top20_slot_imp_cnt,
+bpe.srp_rest_slot_imp_cnt,
+bpe.merch_imp_cnt,
+bpe.total_click_cnt,
+bpe.ebay_click_cnt,
+bpe.off_ebay_click_cnt
+from bpe_v.pl_org_ads_imp_click_sd bpe 
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table items 
+on items.item_id=bpe.item_id
+inner join ACCESS_VIEWS.dw_cal_dt cal 
+on from_unixtime(unix_timestamp(dt,'yyyyMMdd'),'yyyy-MM-dd')=cal.cal_dt
+where from_unixtime(unix_timestamp(dt,'yyyyMMdd'),'yyyy-MM-dd') between "2023-09-01" and "2024-08-31"
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
+) base
+group by 1,2,3;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_daily_traffic_pl_org_seller_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+select 'traffic_metrics_daily' as insights_type
+,"Seller" AS insights_level
+,"atp-autoteile" AS insights_level_value
+,("77") as site_id
+,"2024-08-01" || ' to ' || "2024-08-31" as date_range
+,a.cal_dt
+,pl_imps_curr as pls_imprsns_curr
+,pla_imps_curr as pla_imprsns_curr
+,pl_imps_curr + pla_imps_curr as total_pl_imprsns_curr
+,case when organic_impressions_curr < 0 then 0 else organic_impressions_curr end as organic_impressions_curr
+,total_imprsns_curr
+
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_daily_traffic_pl_org_seller_ct a
+where a.cal_dt between "2024-08-01" and "2024-08-31"
+;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_total_trx_metrics_daily_ct purge;
+create table p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_total_trx_metrics_daily_ct USING PARQUET AS
+select /*+ MERGE(st) */
+("2023-09-01"||' to '||"2024-08-31") flag,
+cal.cal_dt,
+st.user_slctd_id,   
+sum(ck.core_item_cnt) as total_si   	   
+
+from ACCESS_VIEWS.dw_checkout_trans ck
+inner join ACCESS_VIEWS.dw_cal_dt cal 
+on cal.cal_dt = ck.gmv_dt
+
+inner join ACCESS_VIEWS.dw_category_groupings cmp 
+on cmp.leaf_categ_id = ck.leaf_categ_id 
+and cmp.site_id = ck.site_id
+
+inner join ACCESS_VIEWS.dw_lstg_item itm 
+on itm.item_id=ck.item_id
+
+inner join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+on ck.item_id=st.item_id		   
+
+where ck.gmv_dt between  "2023-09-01" and "2024-08-31"
+and !ck.sale_type in (10,12,15)
+and !cmp.sap_category_id in (5,7,41,23,-999)
+and lower(ck.rprtd_wacko_yn)=lower('N')
+and ck.site_id in (77)
+and PAID_IND = 1 
+group by 1,2,3;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_total_trx_metrics_daily_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_dual_attribution_trans_daily_ct purge;
+CREATE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_dual_attribution_trans_daily_ct USING PARQUET AS
+SELECT 
+    trans_id, 
+    COUNT(DISTINCT event_type_txt) AS event_type_count
+FROM ACCESS_VIEWS.PL_ORG_ADS_SALES_FACT k
+INNER JOIN p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+ON st.item_id = k.item_id
+WHERE event_type_txt IN ('PLS', 'PLPS')
+AND FROM_UNIXTIME(EVENT_TM / 1000, 'yyyy-MM-dd') BETWEEN "2023-09-01" and "2024-08-31"
+GROUP BY trans_id
+HAVING COUNT(DISTINCT event_type_txt) > 1;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_dual_attribution_trans_daily_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+drop table if exists p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_daily_ct purge;
+CREATE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_daily_ct USING PARQUET AS
+SELECT
+	cal.cal_dt, 
+    st.user_slctd_id,
+    SUM(CASE WHEN k.event_type_txt = 'PLS' THEN k.item_sold_qty ELSE 0 END) AS pls_si,
+    SUM(CASE WHEN k.event_type_txt = 'PLS' THEN k.sale_slr_blng_curncy_amt ELSE 0 END) AS pls_gmv_bc,
+    SUM(CASE WHEN k.event_type_txt = 'PLPS' AND t.trans_id IS NULL THEN k.item_sold_qty ELSE 0 END) AS pla_si,
+    SUM(CASE WHEN k.event_type_txt = 'PLPS' THEN k.item_sold_qty ELSE 0 END) AS pla_si_notdeduped,
+    SUM(CASE WHEN k.event_type_txt = 'PLPS' AND t.trans_id IS NULL THEN k.sale_slr_blng_curncy_amt ELSE 0 END) AS pla_gmv_bc,
+    SUM(CASE WHEN k.event_type_txt = 'PLPS' THEN k.sale_slr_blng_curncy_amt ELSE 0 END) AS pla_gmv_notdeduped_bc
+FROM ACCESS_VIEWS.PL_ORG_ADS_SALES_FACT k
+inner join ACCESS_VIEWS.dw_cal_dt cal 
+on cal.cal_dt = FROM_UNIXTIME(k.EVENT_TM / 1000, 'yyyy-MM-dd')
+INNER JOIN p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table st 
+ON st.item_id = k.item_id
+LEFT JOIN p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_dual_attribution_trans_daily_ct t 
+ON k.trans_id = t.trans_id
+WHERE k.event_type_txt IN ('PLS', 'PLPS')
+AND FROM_UNIXTIME(k.EVENT_TM / 1000, 'yyyy-MM-dd') BETWEEN "2023-09-01" and "2024-08-31"
+GROUP BY cal.cal_dt, st.user_slctd_id;
+
+ANALYZE TABLE p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_daily_ct COMPUTE STATISTICS FOR ALL COLUMNS;
+
+
+
+
+select 'cvr_trend_daily' as insights_type
+,"Seller" AS insights_level
+,"atp-autoteile" AS insights_level_value
+,("77") as site_id
+,"2024-08-01" || ' to ' || "2024-08-31" as date_range
+,a.cal_dt
+
+,case when COALESCE((b.total_si - c.pls_si - c.pla_si), 0) < 0 then 0 else COALESCE((b.total_si - c.pls_si - c.pla_si), 0) end as organic_si
+,case when COALESCE(a.organic_clicks_curr, 0) < 0 then 0 else COALESCE(a.organic_clicks_curr, 0) end as organic_clicks
+
+,COALESCE(c.pls_si, 0) as pls_si
+,COALESCE(c.pla_si_notdeduped, 0) as pla_si
+,COALESCE(a.pl_clicks_curr, 0) as pls_clicks
+,COALESCE(a.pla_clicks_curr, 0) as pla_clicks
+
+,COALESCE(organic_si / organic_clicks, 0) as curr_organic_cvr
+,COALESCE(c.pls_si / a.pl_clicks_curr, 0) as curr_pls_cvr 
+,COALESCE(c.pla_si_notdeduped / a.pla_clicks_curr, 0) as curr_pla_cvr 
+
+from p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_daily_traffic_pl_org_seller_ct a
+
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_total_trx_metrics_daily_ct b
+on a.cal_dt=b.cal_dt
+
+left join p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_daily_ct c
+on a.cal_dt=c.cal_dt
+
+where a.cal_dt between "2024-08-01" and "2024-08-31"
+;
+
+
+
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_brand_lookup_sales_metrics PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_item_target_table PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_seller_pt PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_totgmv_parentcategory_seller PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_top10_l1_seller PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_top10_l2_seller PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_avg_daily_views PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_kw_table PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_totgmv_brands PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_top10_brands PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_slr_dom_item_condition PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_fvf_metric_seller_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_fvf_metric_seller_pt PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_subsidy_gmv_metric_seller_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_subsidy_gmv_metric_seller_pt PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_coupon_amt_metric_seller_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_coupon_amt_metric_seller_pt PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_PLS_ad_rate_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_PLS_ad_rate_pt PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_dual_attribution_trans_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_adfee_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_dual_attribution_trans_pt PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_adfee_pt PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_pl_org_seller_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_total_trx_metrics_ovl_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_dual_attribution_trans_ovl_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_ovl_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_monthly_sales_metrics_seller_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_monthly_sales_metrics_seller_pt PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sales_metrics_item_cndtn_gmv PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_metrics_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_metrics_pt PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_monthly_impressions_pl_org_seller_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_monthly_impressions_pl_org_seller_pt PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_listings_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_listings_pt PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pls_listings_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pls_listings_pt PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_listings_base_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_active_listings_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_active_listings_pt PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_avg_budget_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_avg_budget_pt PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_metrics_l1_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_listings_l1_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pls_listings_l1_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_total_trx_metrics_l1_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_l1_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_listings_base_l1_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pla_listings_l1_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pls_ad_rate_l1_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pls_compttv_ad_rate_l1_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_ovl_traffic_metrics_l2_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_listings_l2_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pls_listings_l2_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_total_trx_metrics_l2_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_l2_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_listings_base_l2_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pla_listings_l2_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pls_ad_rate_l2_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pls_compttv_ad_rate_l2_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_daily_traffic_pl_org_seller_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_total_trx_metrics_daily_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_dual_attribution_trans_daily_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_daily_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_active_pls_listings_l12m PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_elig_listings_l12m PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_leaf_pl_adoption PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pl_si_gmv_adfee_l12m PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_listings_base_pt PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pls_ad_rate_l12m PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_seller_gross_gmv_si_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sfa_clicks_seller_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_sfa_item_si_gmv_adfee_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_slr_brand_dom_leaf PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_slr_brand_dom_leaf_cndtn PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_slr_brand_leaf_comp_metrics PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_slr_brand_leaf_srch_metrics PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_top10_l1_brand PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_top10_l2_brand PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pls_trx_metrics_l1_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_trx_metrics_l1_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pls_trx_metrics_l2_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_pla_trx_metrics_l2_ct PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_totgmv_sellers PURGE;
+DROP TABLE IF EXISTS p_ads_vi_an_t.Ads_Flagship_akugupta_240930181454_top10_sellers PURGE;
