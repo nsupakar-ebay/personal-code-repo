@@ -699,10 +699,161 @@ order by 3, 1, 2
 limit 100;
 
 
+---- new or retained seller
+----RUN BUT NOT JOINED ON FINAL table
+CREATE TABLE p_NISHANT_LOCAL_T.new_or_reactivated_seller as
+select RETAIL_WEEK, RETAIL_YEAR, AGE_FOR_RTL_WEEK_ID, SLR_ID, NORS_DT,
+case when SLR_TYPE_CD =1 then 'New' 
+     when SLR_TYPE_CD = 2 then 'Reactivated'
+	 else null end as slr_type
+from(
+select cal.RETAIL_WEEK, cal.RETAIL_YEAR, cal.AGE_FOR_RTL_WEEK_ID,
+nors.USER_ID as slr_id, NORS_DT,SLR_TYPE_CD,
+row_number() OVER ( PARTITION by USER_ID, cal.RETAIL_WEEK, cal.RETAIL_YEAR order by NORS_DT desc) as rnk
+from  ACCESS_VIEWS.DW_CAL_DT CAL
+left join ACCESS_VIEWS.SLR_NORS_GMV2_HIST nors
+on nors.NORS_DT <= cal.RETAIL_WK_END_DATE
+and nors.CNTRY_ID = 3
+and cal.CAL_DATE >= '2022-01-01'
+where nors.CNTRY_ID = 3
+and cal.RETAIL_WEEK >=1
+and cal.RETAIL_YEAR >=2022
+AND CAL.AGE_FOR_WEEK_ID <= -1 
+and nors.USER_ID in (
+select distinct SLR_ID
+from PRS_RESTRICTED_V.SLNG_TRANS_SUPER_FACT ck
+WHERE
+    ck.SLR_CNTRY_ID = 3 
+	and ck.GMV_DT >= '2022-01-01'
+    and CK.LSTG_SITE_ID NOT IN (223, -1, -2, -3) 
+    and ck.CK_WACKO_YN = 'N'  
+    and CK.ISCORE = 1 
+	and ck.EU_B2C_C2C_FLAG = 'B2C'
+)
+order by USER_ID,  RETAIL_YEAR, RETAIL_WEEK
+)
+where rnk =1
+
+select *
+from p_NISHANT_LOCAL_T.new_or_reactivated_seller
+limit 100
+
+----NOT run or added to final table
+----- PL T1W METRICS
+CREATE TABLE P_NISHANT_LOCAL_T.T1W_PL_PEN_METRICS AS
+select cal.RETAIL_YEAR
+     	,cal.RETAIL_WEEK,
+		cal.AGE_FOR_RTL_WEEK_ID
+	, pl.slr_id
+	, round(sum(pl.PLS_NET+pl.PLA_NET+pl.PLX_NET),2) as T1W_PL_Net_Revenue
+	, sum(pl.PLS_NET+pl.PLA_NET+pl.PLX_NET) PL_net_rev_pene_pct_num
+	, sum(pl.gmv) PL_net_rev_pene_pct_deno
+	, round(sum(pl.PLS_NET+pl.PLA_NET+pl.PLX_NET)*100/sum(pl.gmv),2) as T1W_PL_net_revenue_penetration_percnt
+	, round(sum(pl.PLS_Enabled_GMV),2) PLS_enabled_GMV_pene_pct_num, round(sum(pl.PLS_ELIG_GMV_USD),2) PLS_enabled_GMV_pene_pct_deno
+	, round(sum(pl.PLS_Enabled_GMV)*100/sum(pl.PLS_ELIG_GMV_USD),2) as T1W_PLS_enabled_GMV_penetration_percnt
+	, round(sum(pl.PLS_enabled_lstg),2) PLS_listing_adoption_pct_num, round(sum(pl.PLS_PLA_ELIG_LSTG),2) PLS_listing_adoption_pct_deno
+	, round(sum(pl.PLS_enabled_lstg)*100/sum(pl.PLS_PLA_ELIG_LSTG),2) as T1W_PLS_listing_adoption_percnt
+	, round(sum(pl.PLA_lstgs)*100/sum(pl.PLS_PLA_ELIG_LSTG),2) as T1W_PLA_listing_adoption_percnt
+	, sum(pl.PLA_lstgs) PLA_listing_adoption_num
+	, sum(pl.PLS_PLA_ELIG_LSTG) PLA_listing_adoption_deno
+from  ACCESS_VIEWS.DW_CAL_DT CAL 
+LEFT JOIN P_NBD_T.SLRSEG_allTiers_final pl
+on PL.CAL_DT=cal.CAL_DT 
+AND CAL.RETAIL_YEAR>=2021
+AND CAL.RETAIL_WEEK>=1
+WHERE CAL.RETAIL_YEAR>=2021
+AND CAL.RETAIL_WEEK>=1
+group by 1,2,3,4
+
+SELECT *
+FROM P_NISHANT_LOCAL_T.T1W_PL_PEN_METRICS
+LIMIT 100
+
+----- T1W_VIEW COUNTS
+--- RUN BUT NOT ADDED TO FINAL TABLE
+CREATE TABLE P_NISHANT_LOCAL_T.T1W_VIEW_CNT AS
+select cal.RETAIL_WEEK, cal.RETAIL_YEAR, cal.AGE_FOR_RTL_WEEK_ID,
+VI.USER_ID as slr_id, 
+SUM(VI_CNT) AS T1W_VIEW_COUNT
+from  ACCESS_VIEWS.DW_CAL_DT CAL
+left join ACCESS_VIEWS.USER_BRWS_SRCH_SD VI
+on VI.CAL_DT = cal.CAL_DT
+and cal.RETAIL_WEEK >= 1
+AND CAL.RETAIL_YEAR >=2021
+where 
+cal.RETAIL_WEEK >=1
+and cal.RETAIL_YEAR >=2021
+AND CAL.AGE_FOR_WEEK_ID <= -1 
+and VI.USER_ID in (
+select distinct SLR_ID
+from PRS_RESTRICTED_V.SLNG_TRANS_SUPER_FACT ck
+WHERE
+    ck.SLR_CNTRY_ID = 3 
+	and ck.GMV_DT >= '2022-01-01'
+    and CK.LSTG_SITE_ID NOT IN (223, -1, -2, -3) 
+    and ck.CK_WACKO_YN = 'N'  
+    and CK.ISCORE = 1 
+	and ck.EU_B2C_C2C_FLAG = 'B2C'
+)
+GROUP BY 1,2,3,4
+order by USER_ID,  RETAIL_YEAR, RETAIL_WEEK
 
 
+select *
+from P_NISHANT_LOCAL_T.T1W_VIEW_CNT
+limit 100
 
+----PLS ad rate
+---not run
+select
+cal.RETAIL_WEEK,
+cal.RETAIL_YEAR,
+cal.AGE_FOR_RTL_WEEK_ID
+,slr_id 
+,avg(LSTG_BID_PCT)/100 as pls_adrate
+,avg(SOLD_BID_PCT)/100 as pls_sold_adrate
+from ACCESS_VIEWS.DW_CAL_DT CAL
+left join access_views.pl_item_mtrc_sd perf_metric
+on perf_metric.CAL_DT = cal.CAL_DT
+and cal.RETAIL_WEEK >=1
+and cal.RETAIL_YEAR >=2022
+where cal.RETAIL_WEEK >=1
+and cal.RETAIL_YEAR >=2022
+and SLR_ID in (
+select distinct SLR_ID
+from PRS_RESTRICTED_V.SLNG_TRANS_SUPER_FACT ck
+WHERE
+    ck.SLR_CNTRY_ID = 3 
+	and ck.GMV_DT >= '2022-01-01'
+    and CK.LSTG_SITE_ID NOT IN (223, -1, -2, -3) 
+    and ck.CK_WACKO_YN = 'N'  
+    and CK.ISCORE = 1 
+	and ck.EU_B2C_C2C_FLAG = 'B2C'
+)
 
+group by 1,2,3,4
+limit 100;  
 
+-----sfa ad rate, gmv, si
+----- need to add transaction date
+--- not run 
+SELECT
+	cal.RETAIL_WEEK,
+	cal.RETAIL_YEAR,
+	cal.AGE_FOR_RTL_WEEK_ID,
+    k.seller_id,
+    SUM(CASE WHEN k.event_type_txt = 'SFAS' THEN k.item_sold_qty ELSE 0 END) AS sfa_si,    
+    SUM(CASE WHEN k.event_type_txt = 'SFAS' THEN k.sale_slr_blng_curncy_amt ELSE 0 END) AS sfa_gmv,   
+    SUM(CASE WHEN k.event_type_txt = 'SFACPC' THEN k.ad_fee_slr_blng_curncy_amt ELSE 0 END) AS sfa_ad_fee
+FROM ACCESS_VIEWS.DW_CAL_DT CAL
+left join ACCESS_VIEWS.PL_ORG_ADS_SALES_FACT k
+on k.CAL_DT = cal.CAL_DT
+and cal.RETAIL_WEEK >=1
+and cal.RETAIL_YEAR >=2022
+where cal.RETAIL_WEEK >=1
+and cal.RETAIL_YEAR >=2022
+AND k.event_type_txt IN ('SFAS', 'SFACPC')
+GROUP BY 1,2,3,4
+limit 100;
 
 
