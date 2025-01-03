@@ -1,0 +1,2475 @@
+-select * from P_MUKIL_T.Mar21_pre15_post15_masterdataset_slr14
+
+-- select * from P_MUKIL_T.test_tool
+
+ 
+
+-- select * from P_MUKIL_T.RelativeEffectResults
+
+ 
+
+DROP TABLE IF EXISTS Basetable_GMV;
+
+CREATE TEMP TABLE Basetable_GMV
+
+SELECT
+
+              cal.retail_year,
+
+    cal.retail_week,
+
+              CAL.RETAIL_WK_END_DATE,
+
+              CAL2.RETAIL_WK_END_DATE AS PGRM_RETAIL_WK_END_DATE,
+
+    ck.SLR_ID,
+
+              a.pt_QTR ,
+
+              a.SIGNUP_STATUS,
+
+              a.PT_START_RETAIL_WK_END_DATE ,ck.SLR_CNTRY_ID,
+
+              round(SUM(gmv20_plan),2) AS GMV,
+
+    SUM(gmv20_sold_quantity) AS SI ,
+
+              ROUND((CAL.RETAIL_WK_END_DATE - CAST('2024-03-24' AS DATE)) / 7, 0) AS weeks_since_Opn
+
+              --ROUND((CAL.RETAIL_WK_END_DATE - CAST('2024-03-24' AS DATE)) / 7, 0) AS weeks_since_Opens
+
+             
+
+FROM PRS_RESTRICTED_V.SLNG_TRANS_SUPER_FACT CK        
+
+              INNER JOIN ACCESS_VIEWS.DW_CAL_DT CAL
+
+                           ON CAL.CAL_DT = CK.GMV_DT
+
+                          
+
+              INNER JOIN
+
+              P_MUKIL_T.test_tool a
+
+                           ON ck.SLR_ID=a.slr_id
+
+ 
+
+              INNER JOIN  ACCESS_VIEWS.DW_CAL_DT CAL2
+
+                           ON CAL2.CAL_DT = a.PT_START_RETAIL_WK_END_DATE
+
+WHERE
+
+1=1  --(cal.RETAIL_WK_END_DATE - cal2.RETAIL_WK_END_DATE) / 7 AS Weeks_from_PT_Start,
+
+                           --AND CK.SLR_CNTRY_ID IN (3)
+
+                           AND CAL.AGE_FOR_WEEK_ID < 0
+
+        --AND CAL.RETAIL_YEAR >= YEAR(DATE_SUB(CAL2.RETAIL_WK_END_DATE, 52*7))
+
+        AND CK.LSTG_SITE_ID NOT IN (223, -1, -2, -3)
+
+        AND CK.ISCORE = 1
+
+                                                       --AND CAL.RETAIL_YEAR >= 2023
+
+                           AND CK.AUCT_END_DT >= '2022-01-01'
+
+        AND CK.CK_WACKO_YN = 'N'
+
+                           --AND A.SIGNUP_STATUS=1 AND A.Registered_for_event=1
+
+                          
+
+--                        AND (CASE when ck.SLR_CNTRY_ID in (3, 16, 23, 71, 77, 99, 101, 146, 163, 186,193) and UPPER(ck.eu_b2c_c2c_flag) in ('B2C') THEN 'B2C'
+
+--                                      else UPPER(ck.B2C_C2C) END) = 'B2C'
+
+GROUP BY 1,2,3,4,5,6,7,8,9;
+
+--11,12;
+
+ 
+
+ 
+
+ 
+
+CONVERT TO DELTA Basetable_GMV;
+
+UPDATE Basetable_GMV
+
+              SET SIGNUP_STATUS= 'test'
+
+              WHERE LOWER(SIGNUP_STATUS) = lower('signed-up');
+
+UPDATE Basetable_GMV
+
+              SET SIGNUP_STATUS= 'ctrl'
+
+              WHERE lower(SIGNUP_STATUS) = lower('not signed-up');
+
+ 
+
+DROP TABLE IF EXISTS WEEKLY_GMV;
+
+CREATE TEMP TABLE WEEKLY_GMV
+
+SELECT
+
+              retail_year,
+
+    retail_week,
+
+              RETAIL_WK_END_DATE,
+
+              PGRM_RETAIL_WK_END_DATE,
+
+              SIGNUP_STATUS,
+
+              PT_START_RETAIL_WK_END_DATE,
+
+              (ROW_NUMBER() OVER(PARTITION BY SIGNUP_STATUS ORDER BY RETAIL_YEAR, RETAIL_WEEK) - (53) ) AS consolidated_Weekvalue,                                 
+
+              round(SUM(GMV),2) AS GMV,
+
+              COUNT(SLR_ID) AS SLR_withGMV_COUNT,
+
+    SUM(SI) AS SI
+
+FROM Basetable_GMV
+
+WHERE 1=1
+
+              AND PT_START_RETAIL_WK_END_DATE = '2024-03-24'
+
+              AND RETAIL_WK_END_DATE >= DATE_SUB(PGRM_RETAIL_WK_END_DATE, 53*7)
+
+              AND RETAIL_WK_END_DATE < DATE_ADD(PGRM_RETAIL_WK_END_DATE, (2 )*7)
+
+GROUP BY
+
+              retail_year,
+
+    retail_week,
+
+              RETAIL_WK_END_DATE,
+
+              PGRM_RETAIL_WK_END_DATE ,
+
+              SIGNUP_STATUS,
+
+PT_START_RETAIL_WK_END_DATE;
+
+ 
+
+ 
+
+             
+
+              DROP TABLE IF EXISTS WEEKLY_SLRCOUNT;
+
+              CREATE TEMP TABLE WEEKLY_SLRCOUNT
+
+SELECT retail_year,
+
+retail_week,
+
+              SIGNUP_STATUS,
+
+              PT_START_RETAIL_WK_END_DATE ,
+
+              cal.RETAIL_WK_END_DATE AS PGRM_RETAIL_WK_END_DATE,
+
+              count(distinct a.SLR_ID) as t1
+
+FROM
+
+              P_MUKIL_T.test_tool a 
+
+              INNER JOIN  ACCESS_VIEWS.DW_CAL_DT cal
+
+                           ON cal.CAL_DT = a.PT_START_RETAIL_WK_END_DATE
+
+                           group by
+
+              retail_year,
+
+              retail_week,
+
+              SIGNUP_STATUS,
+
+              PT_START_RETAIL_WK_END_DATE ,
+
+              cal.RETAIL_WK_END_DATE
+
+order by RETAIL_YEAR desc, RETAIL_WEEK desc;
+
+ 
+
+CONVERT TO DELTA WEEKLY_SLRCOUNT;
+
+UPDATE WEEKLY_SLRCOUNT
+
+              SET SIGNUP_STATUS = 'test'
+
+              WHERE LOWER(SIGNUP_STATUS) = LOWER('signed-up');
+
+              UPDATE WEEKLY_SLRCOUNT
+
+              SET SIGNUP_STATUS = 'ctrl'
+
+              WHERE lower(SIGNUP_STATUS) = LOWER('not signed-up');
+
+             
+
+              DROP TABLE IF EXISTS WEEKLY_UPDATED_GMV;
+
+              CREATE TEMP TABLE WEEKLY_UPDATED_GMV
+
+SELECT
+
+              A3.*,
+
+              IFNULL(A4.T1,0) AS oVERALL_slr
+
+FROM
+
+              WEEKLY_GMV A3
+
+              LEFT JOIN WEEKLY_SLRCOUNT A4
+
+              ON A3.RETAIL_YEAR=A4.RETAIL_YEAR
+
+                           AND A3.RETAIL_WEEK=A4.RETAIL_WEEK
+
+                           AND A3.SIGNUP_STATUS=A4.SIGNUP_STATUS
+
+                           AND A3.PGRM_RETAIL_WK_END_DATE =A4.PGRM_RETAIL_WK_END_DATE;
+
+                          
+
+                          
+
+                          
+
+                           CONVERT TO DELTA WEEKLY_UPDATED_GMV;
+
+                           UPDATE WEEKLY_UPDATED_GMV 
+
+SET
+
+              oVERALL_slr = (SELECT oVERALL_slr FROM  WEEKLY_UPDATED_GMV  WHERE consolidated_weekvalue =0 AND SIGNUP_STATUS = 'test')
+
+WHERE
+
+              oVERALL_slr =0 AND SIGNUP_STATUS = 'test';
+
+              UPDATE WEEKLY_UPDATED_GMV
+
+SET
+
+              oVERALL_slr = (SELECT oVERALL_slr FROM WEEKLY_UPDATED_GMV WHERE consolidated_weekvalue =0 AND SIGNUP_STATUS = 'ctrl'  )
+
+WHERE
+
+              oVERALL_slr=0 AND SIGNUP_STATUS = 'ctrl';
+
+             
+
+              DROP TABLE IF EXISTS P_Mukil_T.Mar21_pre15_post15_weekly_GMV;
+
+              CREATE TABLE P_Mukil_T.Mar21_pre15_post15_weekly_GMV
+
+select
+
+              retail_year,
+
+              retail_week,
+
+              PGRM_RETAIL_WK_END_DATE,
+
+              consolidated_weekvalue,
+
+              SUM(CASE WHEN SIGNUP_STATUS = 'test' 
+
+                                         THEN GMV ELSE 0 END )  AS test_group_GMV,
+
+              SUM(CASE WHEN SIGNUP_STATUS = 'ctrl'
+
+                                         THEN GMV ELSE 0 END )  AS ctrl_group_GMV,
+
+                                        
+
+              SUM(CASE WHEN SIGNUP_STATUS = 'test' 
+
+                                         THEN SI ELSE 0 END )  AS test_group_SI,
+
+              SUM(CASE WHEN SIGNUP_STATUS = 'ctrl'
+
+                                         THEN SI ELSE 0 END )  AS ctrl_group_SI,
+
+                                        
+
+              SUM(CASE WHEN SIGNUP_STATUS = 'test' 
+
+                                         THEN SLR_withGMV_COUNT ELSE 0 END )  AS test_groupSLR_with_GMV_count,
+
+              SUM(CASE WHEN SIGNUP_STATUS = 'ctrl' 
+
+                                         THEN SLR_withGMV_COUNT ELSE 0 END )  AS ctrl_group_SLR_with_GMV_count,
+
+              SUM(CASE WHEN SIGNUP_STATUS = 'test' 
+
+                                         THEN oVERALL_slr ELSE 0 END )  AS test_groupSLR_count,
+
+              SUM(CASE WHEN SIGNUP_STATUS = 'ctrl' 
+
+                                         THEN oVERALL_slr ELSE 0 END )  AS ctrl_group_SLR_count
+
+from WEEKLY_UPDATED_GMV
+
+GROUP BY     
+
+              retail_year,
+
+              retail_week,
+
+              PGRM_RETAIL_WK_END_DATE,
+
+              consolidated_weekvalue
+
+ORDER BY consolidated_weekvalue;
+
+ 
+
+ 
+
+DROP TABLE IF EXISTS A4;
+
+CREATE TEMP TABLE A4
+
+SELECT
+
+              retail_year,
+
+    retail_week,
+
+         SLR_ID,PT_START_RETAIL_WK_END_DATE,
+
+              --weeks_since_Opn,
+
+              pt_QTR ,
+
+              RETAIL_WK_END_DATE,
+
+              PGRM_RETAIL_WK_END_DATE,
+
+              SIGNUP_STATUS,
+
+                           round(SUM(GMV),2) AS GMV,
+
+    SUM(SI) AS SI
+
+FROM Basetable_GMV
+
+WHERE 1=1
+
+              AND PT_START_RETAIL_WK_END_DATE = '2024-03-24' 
+
+              AND RETAIL_WK_END_DATE >= DATE_SUB(PGRM_RETAIL_WK_END_DATE,53*7)
+
+              AND RETAIL_WK_END_DATE < DATE_ADD(PGRM_RETAIL_WK_END_DATE, 2 *7)
+
+GROUP BY
+
+              retail_year,
+
+    retail_week,
+
+         SLR_ID,PT_START_RETAIL_WK_END_DATE,
+
+              pt_QTR ,
+
+              RETAIL_WK_END_DATE,
+
+              PGRM_RETAIL_WK_END_DATE ,
+
+              SIGNUP_STATUS,
+
+              PT_START_RETAIL_WK_END_DATE;
+
+ 
+
+ 
+
+             
+
+              DROP TABLE IF EXISTS P_Mukil_T.Mar21_pre15_post15_slrlevel_GMV;
+
+              CREATE TABLE P_Mukil_T.Mar21_pre15_post15_slrlevel_GMV
+
+SELECT
+
+              Q.retail_year,
+
+    Q.retail_week,
+
+              Q.RETAIL_WK_END_DATE,
+
+              Q.PGRM_RETAIL_WK_END_DATE,
+
+              Q.SIGNUP_STATUS,
+
+              Q.PT_START_RETAIL_WK_END_DATE,
+
+              Q.consolidated_Weekvalue,
+
+              Q.GMV AS GMV,
+
+              Q.SLR_withGMV_COUNT,
+
+    Q.SI,
+
+              W.SLR_ID,
+
+             
+
+              W.pt_QTR,
+
+              W.GMV AS SLR_GMV,
+
+    W.SI AS SLR_SI
+
+FROM
+
+              WEEKLY_UPDATED_GMV AS Q
+
+JOIN
+
+              A4 AS W
+
+ON Q.retail_year = W.retail_year 
+
+    AND Q.retail_week = W.retail_week
+
+              AND Q.RETAIL_WK_END_DATE = W.RETAIL_WK_END_DATE
+
+              AND Q.PGRM_RETAIL_WK_END_DATE = W.PGRM_RETAIL_WK_END_DATE 
+
+              AND Q.SIGNUP_STATUS =W.SIGNUP_STATUS
+
+              AND Q.PT_START_RETAIL_WK_END_DATE =W.PT_START_RETAIL_WK_END_DATE;
+
+             
+
+ 
+
+ 
+
+DROP TABLE IF EXISTS slrlevel_LL;
+
+CREATE TEMP TABLE slrlevel_LL AS
+
+SELECT
+
+    cal.RETAIL_YEAR,
+
+    cal.retail_week,
+
+    CAL.RETAIL_WK_END_DATE,
+
+    lstg.slr_id,
+
+    a.pt_QTR,
+
+    a.PT_START_RETAIL_WK_END_DATE,
+
+    cal2.RETAIL_WK_END_DATE as PGRM_RETAIL_WK_END_DATE,
+
+    a.SIGNUP_STATUS,
+
+              ROUND((CAL.RETAIL_WK_END_DATE - CAST('2024-03-24' AS DATE)) / 7, 0)AS Weeks_from_PT_Start,
+
+    --(cal.RETAIL_WK_END_DATE - cal2.RETAIL_WK_END_DATE) / 7 AS Weeks_from_PT_Start,
+
+    ROUND((CAL.RETAIL_WK_END_DATE - CAST('2024-03-24' AS DATE)) / 7, 0) AS weeks_since_On,
+
+    COUNT(CASE WHEN LSTG.RLST_IND = 0 THEN LSTG.ITEM_ID ELSE NULL END) AS FIRST_GEN_LISTINGS,
+
+    COUNT(CASE WHEN LSTG.RLST_IND = 1 THEN LSTG.ITEM_ID ELSE NULL END) AS RE_LISTINGS,
+
+    COUNT(DISTINCT LSTG.ITEM_ID) AS LL
+
+FROM PRS_RESTRICTED_V.SLNG_LSTG_SUPER_FACT lstg
+
+    inner JOIN P_MUKIL_T.test_tool a ON a.SLR_ID = lstg.SLR_ID 
+
+    INNER JOIN ACCESS_VIEWS.DW_CAL_DT CAL ON lstg.AUCT_START_DT <= CAL.CAL_DT AND lstg.AUCT_END_DT >= CAL.CAL_DT
+
+    INNER JOIN ACCESS_VIEWS.DW_CAL_DT CAL2 ON CAL2.CAL_DT = a.PT_START_RETAIL_WK_END_DATE
+
+WHERE
+
+    lstg.ITEM_SITE_ID IN (3)
+
+    AND cal.AGE_FOR_RTL_WEEK_ID < 0
+
+    AND cal.RETAIL_YEAR >= YEAR(DATE_SUB(CAL2.RETAIL_WK_END_DATE, 53*7))
+
+    AND lstg.LSTG_SITE_ID NOT IN (223, -1, -2, -3) 
+
+    AND LSTG.ISCORE = 1
+
+    AND lstg.auct_type_code NOT IN (10,15)
+
+GROUP BY 1,2,3,4,5,6,7,8,9,10;
+
+ 
+
+ 
+
+ 
+
+CONVERT TO DELTA slrlevel_LL;
+
+UPDATE
+
+  slrlevel_LL SET SIGNUP_STATUS = 'test'
+
+WHERE
+
+  LOWER(SIGNUP_STATUS) = lower('signed-up');
+
+  UPDATE
+
+  slrlevel_LL SET SIGNUP_STATUS = 'ctrl'
+
+WHERE
+
+  lower(SIGNUP_STATUS) = lower('not signed-up');
+
+ 
+
+  
+
+  
+
+  DROP TABLE IF EXISTS P_Mukil_T.Mar21_pre15_post15_slrlevel_LL;
+
+  CREATE TABLE P_Mukil_T.Mar21_pre15_post15_slrlevel_LL
+
+select
+
+  RETAIL_YEAR,
+
+  retail_week,
+
+  RETAIL_WK_END_DATE,
+
+  slr_id,
+
+  pt_QTR,
+
+  PT_START_RETAIL_WK_END_DATE,
+
+  PGRM_RETAIL_WK_END_DATE,
+
+  SIGNUP_STATUS,
+
+  Weeks_from_PT_Start,
+
+  weeks_since_On,
+
+  FIRST_GEN_LISTINGS,
+
+  RE_LISTINGS,
+
+  LL
+
+FROM
+
+  slrlevel_LL
+
+  GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,13;
+
+ 
+
+ 
+
+ 
+
+  DROP TABLE IF EXISTS LL_UPDATED;
+
+  CREATE TEMP TABLE LL_UPDATED
+
+SELECT
+
+  retail_year,
+
+  retail_week,
+
+  RETAIL_WK_END_DATE,
+
+  PGRM_RETAIL_WK_END_DATE,
+
+  SIGNUP_STATUS,
+
+  PT_START_RETAIL_WK_END_DATE,
+
+  (
+
+    ROW_NUMBER() OVER(
+
+      PARTITION BY SIGNUP_STATUS
+
+      ORDER BY RETAIL_YEAR, RETAIL_WEEK
+
+    ) - (53)
+
+  ) AS consolidated_Weekvalue,
+
+  round(SUM(ll), 2) AS LL,
+
+  round(SUM(FIRST_GEN_LISTINGS), 2) AS FGNL,
+
+  round(SUM(RE_LISTINGS), 2) AS RL,
+
+  COUNT(DISTINCT SLR_ID) AS SLR_COUNT
+
+FROM
+
+  P_Mukil_T.Mar21_pre15_post15_slrlevel_LL
+
+WHERE
+
+  1 = 1
+
+  AND PT_START_RETAIL_WK_END_DATE = '2024-03-24'
+
+  AND RETAIL_WK_END_DATE >= DATE_SUB(
+
+    PGRM_RETAIL_WK_END_DATE,
+
+    53 * 7
+
+  )
+
+  AND RETAIL_WK_END_DATE < DATE_ADD(
+
+    PGRM_RETAIL_WK_END_DATE,
+
+    (2) * 7
+
+  )
+
+  GROUP BY retail_year, retail_week, RETAIL_WK_END_DATE, PGRM_RETAIL_WK_END_DATE, SIGNUP_STATUS, PT_START_RETAIL_WK_END_DATE;
+
+ 
+
+ 
+
+ 
+
+ 
+
+  DROP TABLE IF EXISTS P_Mukil_T.Mar21_pre15_post15_weekly_LL;
+
+  CREATE TABLE P_Mukil_T.Mar21_pre15_post15_weekly_LL
+
+select
+
+              consolidated_weekvalue,
+
+              SUM(CASE WHEN SIGNUP_STATUS = 'test' 
+
+                                         THEN LL ELSE 0 END )  AS test_group_LL,
+
+              SUM(CASE WHEN SIGNUP_STATUS = 'ctrl'
+
+                                         THEN LL ELSE 0 END )  AS ctrl_group_LL,
+
+              SUM(CASE WHEN SIGNUP_STATUS = 'test' 
+
+                                         THEN FGNL ELSE 0 END )  AS test_group_FGNL,
+
+              SUM(CASE WHEN SIGNUP_STATUS = 'ctrl'
+
+                                         THEN FGNL ELSE 0 END )  AS ctrl_group_FGNL,
+
+                           SUM(CASE WHEN SIGNUP_STATUS = 'test' 
+
+                                         THEN RL ELSE 0 END )  AS test_group_RL,
+
+              SUM(CASE WHEN SIGNUP_STATUS = 'ctrl'
+
+                                         THEN RL ELSE 0 END )  AS ctrl_group_RL
+
+from LL_UPDATED
+
+GROUP BY consolidated_weekvalue
+
+ORDER BY consolidated_weekvalue;
+
+ 
+
+ 
+
+ 
+
+ 
+
+drop table if exists slrlevel_PL_new;
+
+CREATE temp TABLE slrlevel_PL_new AS
+
+SELECT
+
+              CAL.RETAIL_YEAR,
+
+              CAL.RETAIL_WEEK,
+
+              CAL.RETAIL_WK_END_DATE,
+
+              PT_START_RETAIL_WK_END_DATE
+
+              ,CAL_PDT.RETAIL_WK_END_DATE AS PGRM_RETAIL_WK_END_DATE
+
+              ,a.SLR_ID
+
+             
+
+              ,a.pt_QTR
+
+              ,a.SIGNUP_STATUS
+
+              ,ROUND((CAL.RETAIL_WK_END_DATE - CAST('2024-03-24' AS DATE)) / 7, 0)AS Weeks_from_PT_Start,
+
+              --,(cal.RETAIL_WK_END_DATE-CAL_PDT.RETAIL_WK_END_DATE)/7 Weeks_from_PT_Start,
+
+              Sum(CASE WHEN GEM.ACTN_CODE in (409,410) THEN Cast (TRXN_CURNCY_AMT * BPR.CURNCY_PLAN_RATE AS FLOAT ) ELSE 0 END ) PLS_NET,
+
+              Sum(CASE WHEN GEM.ACTN_CODE = 409 THEN Cast (TRXN_CURNCY_AMT * BPR.CURNCY_PLAN_RATE AS FLOAT) ELSE 0 END) AS PLS_GROSS,
+
+              Sum(CASE WHEN GEM.ACTN_CODE in (474,475) THEN Cast (TRXN_CURNCY_AMT * BPR.CURNCY_PLAN_RATE AS FLOAT) ELSE 0 END ) PLA_NET,
+
+              Sum(CASE WHEN GEM.ACTN_CODE = 474 THEN Cast (TRXN_CURNCY_AMT * BPR.CURNCY_PLAN_RATE AS FLOAT) ELSE 0 END) AS PLA_GROSS
+
+FROM
+
+(
+
+              SELECT
+
+                           ACCT_TRANS_DT,
+
+                           SLR_ID,
+
+                           ACTN_CODE,
+
+                           LEAF_CATEG_ID,
+
+                           LSTG_SITE_ID,
+
+                           SLR_CNTRY_ID,
+
+                           BYR_CNTRY_ID,
+
+                           TRXN_CURNCY_CD
+
+                           ,Sum(Cast ( -1* TRXN_CURNCY_AMT AS FLOAT)) TRXN_CURNCY_AMT,
+
+                           Sum(Cast(-1 * AMT_USD AS FLOAT )) AMT_USD,
+
+                           Sum(Cast(-1 * AMT_M_USD AS FLOAT)) AMT_M_USD
+
+              FROM
+
+                       ACCESS_VIEWS.DW_GEM2_CMN_RVNU_I RVNU
+
+              WHERE
+
+                            ACCT_TRANS_DT >= DATE_SUB('2024-03-24', (53)*7) and ACCT_TRANS_DT <= CURRENT_DATE - 1
+
+                                         and  LSTG_SITE_ID in (3)
+
+                                         AND LSTG_TYPE_CODE NOT IN (10,15)
+
+                                         AND ADJ_TYPE_ID NOT IN (-1,-7,5)
+
+                                         AND LSTG_SITE_ID <> 223
+
+                                         AND ACCT_TRANS_ID <> 3178044411711
+
+                                         AND ACTN_CODE IN (409,410,474,475)
+
+              GROUP BY 1,2,3,4,5,6,7,8
+
+              UNION ALL
+
+                          
+
+              SELECT
+
+                           ACCT_TRANS_DT,
+
+                           SLR_ID,
+
+                           ACTN_CODE,
+
+                           LEAF_CATEG_ID,
+
+                           LSTG_SITE_ID,
+
+                           SLR_CNTRY_ID,
+
+                           BYR_CNTRY_ID,
+
+                           TRXN_CURNCY_CD
+
+                           ,Sum(Cast ( TRXN_CURNCY_AMT AS FLOAT)) TRXN_CURNCY_AMT,
+
+                           Sum( Cast( AMT_USD AS FLOAT ) ) AMT_USD,
+
+                           Sum( Cast(AMT_M_USD AS FLOAT ) ) AMT_M_USD
+
+              FROM
+
+              ACCESS_VIEWS.DW_GEM2_CMN_ADJ_RVNU_I
+
+              WHERE
+
+                           ACCT_TRANS_DT >= DATE_SUB('2024-03-24', (53)*7)  and ACCT_TRANS_DT <= CURRENT_DATE - 1
+
+                                         AND LSTG_TYPE_CODE NOT IN(10,15)
+
+                                         AND  LSTG_SITE_ID in (3)
+
+                                         AND LSTG_SITE_ID <> 223
+
+                                         AND ISWACKO_YN_ID = 1
+
+                                         AND ACCT_TRANS_ID<>3178044411711
+
+                                         AND ACTN_CODE IN (409,410,474,475)
+
+              GROUP BY 1,2,3,4,5,6,7,8
+
+)GEM
+
+              INNER JOIN ACCESS_VIEWS.SSA_CURNCY_PLAN_RATE_DIM AS BPR 
+
+                           ON GEM. TRXN_CURNCY_CD = BPR. CURNCY_ID 
+
+              INNER JOIN ACCESS_VIEWS.DW_ACCT_ACTN_CODE_LKP AS B
+
+                           ON GEM.ACTN_CODE = B.ACTN_CODE AND B.REV_BKT_ID BETWEEN 29 AND 36
+
+              INNER JOIN ACCESS_VIEWS.DW_ACCT_LSTG_REV_BKT_LKP AS R
+
+                           ON R.REV_BKT_ID = B.REV_BKT_ID AND Upper(R.REV_GRP_CODE) = 'GEM'
+
+              INNER JOIN ACCESS_VIEWS.DW_ACTION_CODES AS ACTN_CODE
+
+                           ON ACTN_CODE.ACTN_CODE = GEM.ACTN_CODE
+
+              INNER JOIN ACCESS_VIEWS.DW_CAL_DT CAL
+
+                           ON GEM.ACCT_TRANS_DT = CAL.CAL_DT
+
+              INNER JOIN P_MUKIL_T.test_tool a
+
+                           ON GEM.SLR_ID=a.SLR_ID
+
+              INNER JOIN  ACCESS_VIEWS.DW_CAL_DT CAL_PDT
+
+                           ON CAL_PDT.CAL_DT = a.PT_START_RETAIL_WK_END_DATE
+
+GROUP BY 1,2,3,4,5,6,7,8,9;
+
+ 
+
+ 
+
+ 
+
+CONVERT TO DELTA slrlevel_PL_new;
+
+UPDATE
+
+  slrlevel_PL_new SET SIGNUP_STATUS = 'test'
+
+WHERE
+
+  LOWER(SIGNUP_STATUS) = lower('signed-up');
+
+  UPDATE
+
+  slrlevel_PL_new SET SIGNUP_STATUS = 'ctrl'
+
+WHERE
+
+  lower(SIGNUP_STATUS) = lower('not signed-up');
+
+ 
+
+  drop table if exists P_Mukil_T.Mar21_pre15_post15_slrlevel_PL;
+
+  CREATE TABLE P_Mukil_T.Mar21_pre15_post15_slrlevel_PL AS
+
+SELECT
+
+              RETAIL_YEAR
+
+              , Retail_week
+
+              , RETAIL_WK_END_DATE
+
+              , PT_START_RETAIL_WK_END_DATE
+
+              , PGRM_RETAIL_WK_END_DATE
+
+              , SLR_ID
+
+             
+
+              ,pt_QTR
+
+              ,SIGNUP_STATUS
+
+              , Weeks_from_PT_Start
+
+              ,PLS_NET
+
+              ,PLA_NET
+
+              , ( PLS_NET+ PLA_NET) as PL_NET_REVENUE
+
+FROM slrlevel_PL_new
+
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12;
+
+ 
+
+ 
+
+ 
+
+drop table if exists weekly_cadence;
+
+CREATE TEMP TABLE weekly_cadence AS
+
+SELECT
+
+              retail_year,
+
+    retail_week,
+
+              RETAIL_WK_END_DATE,
+
+              PGRM_RETAIL_WK_END_DATE,
+
+              SIGNUP_STATUS,
+
+              PT_START_RETAIL_WK_END_DATE,
+
+              Weeks_from_PT_Start
+
+              , round(sum(PLS_NET),2) as PLS_Net_Revenue
+
+              , round(sum(PLA_NET),2) as PLA_Net_Revenue
+
+              , round(sum(PL_NET_REVENUE),2) as PL_Net_Revenue
+
+              , COUNT(DISTINCT SLR_ID) AS SLR_COUNT
+
+FROM  P_Mukil_T.Mar21_pre15_post15_slrlevel_PL
+
+WHERE 1=1
+
+              AND PT_START_RETAIL_WK_END_DATE = '2024-03-24'
+
+              AND RETAIL_WK_END_DATE >= DATE_SUB(PGRM_RETAIL_WK_END_DATE, 53*7)
+
+              AND RETAIL_WK_END_DATE < DATE_ADD(PGRM_RETAIL_WK_END_DATE, (2)*7)
+
+GROUP BY
+
+              retail_year,
+
+    retail_week,
+
+              RETAIL_WK_END_DATE,
+
+              PGRM_RETAIL_WK_END_DATE ,
+
+              SIGNUP_STATUS,
+
+              PT_START_RETAIL_WK_END_DATE,
+
+              Weeks_from_PT_Start
+
+ORDER BY
+
+              SIGNUP_STATUS DESC,
+
+              Weeks_from_PT_Start;
+
+             
+
+              drop table if exists weekly_cadence2;
+
+              CREATE TEMP TABLE weekly_cadence2 AS
+
+SELECT
+
+                SIGNUP_STATUS
+
+             , Weeks_from_PT_Start
+
+              , round(sum(PLS_Net_Revenue),2) as PLS_Net_Revenue
+
+              , round(sum(PLA_Net_Revenue),2) as PLA_Net_Revenue
+
+              , round(sum(PL_Net_Revenue),2) as  PL_Net_Revenue
+
+              , SUM(SLR_COUNT) AS SLR_COUNT
+
+FROM  weekly_cadence
+
+GROUP BY
+
+              SIGNUP_STATUS
+
+             , Weeks_from_PT_Start
+
+ORDER BY
+
+              SIGNUP_STATUS
+
+             , Weeks_from_PT_Start;
+
+             
+
+              drop table if exists P_Mukil_T.Mar21_pre15_post15_weekly_PL;
+
+              CREATE TABLE P_Mukil_T.Mar21_pre15_post15_weekly_PL AS
+
+select
+
+              CAST(Weeks_from_PT_Start as dec(18,0)) Weeks_from_PT_Start ,
+
+              SUM(CASE WHEN SIGNUP_STATUS = 'test' 
+
+                                         THEN PLS_Net_Revenue ELSE 0 END )  AS test_group_PLS_Net_Revenue,
+
+              SUM(CASE WHEN SIGNUP_STATUS = 'ctrl'
+
+                                         THEN PLS_Net_Revenue ELSE 0 END )  AS ctrl_group_PLS_Net_Revenue,
+
+              SUM(CASE WHEN SIGNUP_STATUS = 'test' 
+
+                                         THEN PLA_Net_Revenue ELSE 0 END )  AS test_group_PLA_Net_Revenue,
+
+              SUM(CASE WHEN SIGNUP_STATUS = 'ctrl'
+
+                                         THEN PLA_Net_Revenue ELSE 0 END )  AS ctrl_group_PLA_Net_Revenue,
+
+              SUM(CASE WHEN SIGNUP_STATUS = 'test' 
+
+                                         THEN PL_Net_Revenue ELSE 0 END )  AS test_group_PL_Net_Revenue,
+
+              SUM(CASE WHEN SIGNUP_STATUS = 'ctrl'
+
+                                         THEN PL_Net_Revenue ELSE 0 END )  AS ctrl_group_PL_Net_Revenue
+
+from weekly_cadence2
+
+GROUP BY Weeks_from_PT_Start
+
+ORDER BY Weeks_from_PT_Start;
+
+ 
+
+DROP table if exists PT_DE_Store_Subscrptn;
+
+CREATE TEMP TABLE PT_DE_Store_Subscrptn AS
+
+SELECT distinct
+
+              RETAIL_YEAR
+
+              , RETAIL_WEEK
+
+              , RETAIL_WK_END_DATE
+
+              , slr_id
+
+             
+
+              , pt_QTR
+
+              , SIGNUP_STATUS
+
+              , PT_START_RETAIL_WK_END_DATE
+
+              , PGRM_RETAIL_WK_END_DATE
+
+              , Weeks_from_PT_Start
+
+              , Store_type                 
+
+from ( SELECT distinct cal.RETAIL_YEAR
+
+              , cal.RETAIL_WEEK
+
+              , cal.RETAIL_WK_END_DATE
+
+              , str.USER_ID slr_id
+
+             
+
+              , pt_QTR
+
+              , SIGNUP_STATUS
+
+              , PT_START_RETAIL_WK_END_DATE
+
+ 
+
+              ,CAL2.RETAIL_WK_END_DATE AS PGRM_RETAIL_WK_END_DATE
+
+              ,ROUND((CAL.RETAIL_WK_END_DATE - CAST('2024-03-24' AS DATE)) / 7, 0)AS Weeks_from_PT_Start,
+
+              --,(cal.RETAIL_WK_END_DATE-CAL2.RETAIL_WK_END_DATE)/7 Weeks_from_PT_Start
+
+              case
+
+                                         when str.PROD_ID= 101 then 'Starter Store'
+
+                                         when str.PROD_ID= 3 then 'Basic Store'
+
+                                         when str.PROD_ID= 4 then 'Featured Store'
+
+                                         when str.PROD_ID= 5 then 'Anchor Store'
+
+                                         when str.PROD_ID= 102 then 'Enterprise Store'
+
+                                         else 'Others'
+
+                           end Store_type
+
+FROM ACCESS_VIEWS.DW_SUBSCRIPTION_HISTORY str
+
+              INNER JOIN ACCESS_VIEWS.DW_CAL_DT CAL
+
+                                         on BEST_END_DATE>=cal.cal_dt
+
+                                                       and SUB_DATE<cal.cal_dt
+
+              INNER JOIN P_MUKIL_T.test_tool  a on a.SLR_ID=str.USER_ID 
+
+              INNER JOIN  ACCESS_VIEWS.DW_CAL_DT CAL2
+
+                                         ON CAL2.CAL_DT = a.PT_START_RETAIL_WK_END_DATE
+
+ 
+
+WHERE
+
+                           YEAR(cal.cal_dt)>= YEAR(DATE_SUB(A.PT_Start_RETAIL_WK_END_DATE, 53*7))
+
+              AND str.SITE_ID IN (3)
+
+              AND str.PROD_ID IN (3,4,5,101,102)
+
+              AND cal.AGE_FOR_WEEK_ID<0
+
+              --and BEST_END_DATE > CURRENT_DATE
+
+) F1
+
+WHERE Weeks_from_PT_Start>= -53 AND Weeks_from_PT_Start < 2;
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+ 
+
+DROP TABLE IF EXISTS Basetable_GMV;
+
+CREATE TEMP TABLE Basetable_GMV
+
+SELECT
+
+              cal.retail_year,
+
+    cal.retail_week,
+
+              CAL.RETAIL_WK_END_DATE,
+
+              CAL2.RETAIL_WK_END_DATE AS PGRM_RETAIL_WK_END_DATE,
+
+    a.SLR_ID,
+
+             
+
+              a.pt_QTR ,
+
+              a.SIGNUP_STATUS,
+
+              a.PT_START_RETAIL_WK_END_DATE
+
+,
+
+              ROUND((CAL.RETAIL_WK_END_DATE - CAST('2024-03-24' AS DATE)) / 7, 0)AS Weeks_from_PT_Start,
+
+              --(cal.RETAIL_WK_END_DATE-CAL2.RETAIL_WK_END_DATE)/7 Weeks_from_PT_Start,
+
+              round(SUM(gmv20_plan),2) AS GMV,
+
+    SUM(gmv20_sold_quantity) AS SI,
+
+              ROUND((CAL.RETAIL_WK_END_DATE - CAST('2024-03-24' AS DATE)) / 7, 0) AS weeks_since_On
+
+ 
+
+FROM PRS_RESTRICTED_V.SLNG_TRANS_SUPER_FACT CK        
+
+              INNER JOIN ACCESS_VIEWS.DW_CAL_DT CAL
+
+                           ON CAL.CAL_DT = CK.GMV_DT
+
+    INNER JOIN P_MUKIL_T.test_tool a
+
+                           ON ck.SLR_ID=a.SLR_ID
+
+              INNER JOIN  ACCESS_VIEWS.DW_CAL_DT CAL2
+
+                           ON CAL2.CAL_DT = a.PT_START_RETAIL_WK_END_DATE
+
+ 
+
+WHERE 1=1 
+
+                           AND CK.SLR_CNTRY_ID IN (3)
+
+                           AND CAL.age_for_rtl_week_id < 0
+
+        AND CAL.RETAIL_YEAR >= YEAR(DATE_SUB(CAL2.RETAIL_WK_END_DATE, 53*7))
+
+        AND CK.LSTG_SITE_ID NOT IN (223, -1, -2, -3)
+
+        AND CK.ISCORE = 1
+
+        AND CK.CK_WACKO_YN = 'N'
+
+                          
+
+--                        AND (CASE when ck.SLR_CNTRY_ID  in (3, 16, 23, 71, 77, 99, 101, 146, 163, 186,193) and UPPER(ck.eu_b2c_c2c_flag) in ('B2C') THEN 'B2C'
+
+--                        else UPPER(ck.B2C_C2C) END) = 'B2C'
+
+GROUP BY 1,2,3,4,5,6,7,8;
+
+ 
+
+ 
+
+DROP TABLE IF EXISTS Basetable_slr_store;
+
+CREATE TEMP TABLE Basetable_slr_store
+
+              select distinct y.*, IFNULL(Store_type,'NA') AS Store_type
+
+              from PT_DE_Store_Subscrptn x
+
+              RIGHT join Basetable_GMV y
+
+                           on x.SLR_ID=y.SLR_ID
+
+                           and x.SIGNUP_STATUS=y.SIGNUP_STATUS
+
+                           and x.PGRM_RETAIL_WK_END_DATE =y.PGRM_RETAIL_WK_END_DATE
+
+                           and x.Weeks_from_PT_Start=y.Weeks_from_PT_Start
+
+              WHERE Y.RETAIL_WK_END_DATE >= DATE_SUB(Y.PGRM_RETAIL_WK_END_DATE, 53*7)
+
+                           AND Y.RETAIL_WK_END_DATE < DATE_ADD(Y.PGRM_RETAIL_WK_END_DATE, (2)*7);
+
+                          
+
+                           CONVERT TO DELTA  Basetable_slr_store;
+
+                           UPDATE  Basetable_slr_store
+
+                           SET SIGNUP_STATUS = 'test'
+
+                           WHERE LOWER(SIGNUP_STATUS) = LOWER('signed-up');
+
+                           UPDATE  Basetable_slr_store
+
+                           SET SIGNUP_STATUS = 'ctrl'
+
+                           WHERE lower(SIGNUP_STATUS) = LOWER('not signed-up');
+
+                          
+
+ 
+
+                          
+
+                           drop table if exists P_Mukil_T.Mar21_pre15_post15_slrlevel_store;
+
+                           CREATE TABLE P_Mukil_T.Mar21_pre15_post15_slrlevel_store AS
+
+SELECT
+
+              retail_year,
+
+    retail_week,
+
+              RETAIL_WK_END_DATE,
+
+              PGRM_RETAIL_WK_END_DATE,
+
+    SLR_ID,
+
+              weeks_since_On,
+
+              pt_QTR ,
+
+              SIGNUP_STATUS,
+
+              PT_START_RETAIL_WK_END_DATE,
+
+              Weeks_from_PT_Start,
+
+              Store_type,
+
+              GMV,
+
+    SI
+
+FROM Basetable_slr_store
+
+GROUP BY
+
+              retail_year,
+
+    retail_week,
+
+              RETAIL_WK_END_DATE,
+
+              PGRM_RETAIL_WK_END_DATE,
+
+    SLR_ID,
+
+              weeks_since_On,
+
+              pt_QTR ,
+
+              SIGNUP_STATUS,
+
+              PT_START_RETAIL_WK_END_DATE,
+
+              Weeks_from_PT_Start,
+
+              Store_type,
+
+              GMV,
+
+    SI
+
+ORDER BY
+
+              SIGNUP_STATUS,
+
+              Weeks_from_PT_Start;
+
+             
+
+ 
+
+             
+
+                           drop table if exists weekly_store;
+
+                           CREATE TEMP TABLE weekly_store AS
+
+SELECT
+
+slr_id,
+
+              retail_year,
+
+    retail_week,
+
+              RETAIL_WK_END_DATE,
+
+              PGRM_RETAIL_WK_END_DATE,
+
+              SIGNUP_STATUS,
+
+              PT_START_RETAIL_WK_END_DATE,
+
+              Weeks_from_PT_Start,
+
+              Store_type,
+
+              weeks_since_On,
+
+              round(SUM(GMV),2) AS GMV,
+
+              COUNT(DISTINCT SLR_ID) AS SLR_withGMV_COUNT,
+
+    SUM(SI) AS SI
+
+FROM P_Mukil_T.Mar21_pre15_post15_slrlevel_store
+
+WHERE 1=1
+
+              AND PT_START_RETAIL_WK_END_DATE = '2024-03-24'
+
+              AND RETAIL_WK_END_DATE >= DATE_SUB(PGRM_RETAIL_WK_END_DATE, 53*7)
+
+              AND RETAIL_WK_END_DATE < DATE_ADD(PGRM_RETAIL_WK_END_DATE, (2 )*7)
+
+GROUP BY
+
+slr_id,
+
+              retail_year,
+
+    retail_week,
+
+              RETAIL_WK_END_DATE,
+
+              PGRM_RETAIL_WK_END_DATE ,
+
+              SIGNUP_STATUS,
+
+              PT_START_RETAIL_WK_END_DATE,
+
+              Weeks_from_PT_Start,
+
+              Store_type,
+
+              weeks_since_On
+
+ORDER BY
+
+              SIGNUP_STATUS,
+
+              Weeks_from_PT_Start;
+
+             
+
+-- Select SUM(gmv) from weekly_store
+
+--  WHERE  weeks_since_On = -46 AND SIGNUP_STATUS = 'ctrl'
+
+             
+
+             
+
+             
+
+             
+
+              drop table if exists pivotstore;
+
+              CREATE temp TABLE pivotstore AS
+
+ select
+
+ slr_id,
+
+              CAST(Weeks_from_PT_Start as dec(18,0)) Weeks_from_PT_Start,
+
+              Store_type,
+
+              SUM(CASE WHEN SIGNUP_STATUS = 'test' 
+
+                                         THEN GMV ELSE 0 END )  AS test_group_GMV,
+
+              SUM(CASE WHEN SIGNUP_STATUS = 'ctrl'
+
+                                         THEN GMV ELSE 0 END )  AS ctrl_group_GMV,
+
+              SUM(CASE WHEN SIGNUP_STATUS = 'test' 
+
+                                         THEN SLR_withGMV_COUNT ELSE 0 END )  AS test_group_SLR_withGMV_COUNT,
+
+              SUM(CASE WHEN SIGNUP_STATUS = 'ctrl'
+
+                                         THEN SLR_withGMV_COUNT ELSE 0 END )  AS ctrl_group_SLR_withGMV_COUNT,
+
+                           SUM(CASE WHEN SIGNUP_STATUS = 'test' 
+
+                                         THEN SI ELSE 0 END )  AS test_group_SI,
+
+              SUM(CASE WHEN SIGNUP_STATUS = 'ctrl'
+
+                                         THEN SI ELSE 0 END )  AS ctrl_group_SI
+
+from weekly_store
+
+GROUP BY slr_id,Weeks_from_PT_Start,Store_type
+
+ORDER BY Weeks_from_PT_Start,Store_type;
+
+ 
+
+ 
+
+drop table if exists P_Mukil_T.Mar21_pre15_post15_weekly_store;
+
+CREATE TABLE P_Mukil_T.Mar21_pre15_post15_weekly_store AS
+
+select
+
+              Weeks_from_PT_Start,
+
+             
+
+              SUM(CASE WHEN Store_type = 'Anchor Store'
+
+                                         THEN test_group_GMV ELSE 0 END )  AS test_group_AnchorStore_GMV,
+
+              SUM(CASE WHEN Store_type = 'Basic Store'
+
+                                         THEN test_group_GMV ELSE 0 END )  AS test_group_BasicStore_GMV,
+
+              SUM(CASE WHEN Store_type = 'Featured Store'
+
+                                         THEN test_group_GMV ELSE 0 END )  AS test_group_FeaturedStore_GMV,
+
+              SUM(CASE WHEN Store_type = 'NA'
+
+                                         THEN test_group_GMV ELSE 0 END )  AS test_group_Other_typeStore_GMV,
+
+                                        
+
+              SUM(CASE WHEN Store_type = 'Anchor Store'
+
+                                         THEN ctrl_group_GMV ELSE 0 END )  AS ctrl_group_AnchorStore_GMV,
+
+              SUM(CASE WHEN Store_type = 'Basic Store'
+
+                                         THEN ctrl_group_GMV ELSE 0 END )  AS ctrl_group_BasicStore_GMV,
+
+              SUM(CASE WHEN Store_type = 'Featured Store'
+
+                                         THEN ctrl_group_GMV ELSE 0 END )  AS ctrl_group_FeaturedStore_GMV,
+
+              SUM(CASE WHEN Store_type = 'NA'
+
+                                         THEN ctrl_group_GMV ELSE 0 END )  AS ctrl_group_Other_typeStore_GMV,
+
+             
+
+              SUM(CASE WHEN Store_type = 'Anchor Store'
+
+                                         THEN test_group_SLR_withGMV_COUNT ELSE 0 END )  AS test_group_AnchorStoreSLR_withGMV_COUNT,
+
+              SUM(CASE WHEN Store_type = 'Basic Store'
+
+                                         THEN test_group_SLR_withGMV_COUNT ELSE 0 END )  AS test_group_BasicStoreSLR_withGMV_COUNT,
+
+              SUM(CASE WHEN  Store_type = 'Featured Store'
+
+                                         THEN test_group_SLR_withGMV_COUNT ELSE 0 END )  AS test_group_FeaturedStoreSLR_withGMV_COUNT,
+
+              SUM(CASE WHEN Store_type = 'NA'
+
+                                         THEN test_group_SLR_withGMV_COUNT ELSE 0 END )  AS test_group_Other_typeStoreSLR_withGMV_COUNT,
+
+                                        
+
+              SUM(CASE WHEN Store_type = 'Anchor Store'
+
+                                         THEN ctrl_group_SLR_withGMV_COUNT ELSE 0 END )  AS ctrl_group_AnchorStoreSLR_withGMV_COUNT,
+
+              SUM(CASE WHEN Store_type = 'Basic Store'
+
+                                         THEN ctrl_group_SLR_withGMV_COUNT ELSE 0 END )  AS ctrl_group_BasicStoreSLR_withGMV_COUNT,
+
+              SUM(CASE WHEN Store_type = 'Featured Store'
+
+                                         THEN ctrl_group_SLR_withGMV_COUNT ELSE 0 END )  AS ctrl_group_FeaturedStoreSLR_withGMV_COUNT,
+
+              SUM(CASE WHEN Store_type = 'NA'
+
+                                         THEN ctrl_group_SLR_withGMV_COUNT ELSE 0 END )  AS ctrl_group_Other_typeStoreSLR_withGMV_COUNT,
+
+                                        
+
+              SUM(CASE WHEN Store_type = 'Anchor Store'
+
+                                         THEN test_group_SI ELSE 0 END )  AS test_group_AnchorStore_SI,
+
+              SUM(CASE WHEN Store_type = 'Basic Store'
+
+                                         THEN test_group_SI ELSE 0 END )  AS test_group_BasicStore_SI,
+
+              SUM(CASE WHEN  Store_type = 'Featured Store'
+
+                                         THEN test_group_SI ELSE 0 END )  AS test_group_FeaturedStore_SI,
+
+              SUM(CASE WHEN Store_type = 'NA'
+
+                                         THEN test_group_SI ELSE 0 END )  AS test_group_Other_typeStore_SI,
+
+                                        
+
+              SUM(CASE WHEN Store_type = 'Anchor Store'
+
+                                         THEN ctrl_group_SI ELSE 0 END )  AS ctrl_group_AnchorStore_SI,
+
+              SUM(CASE WHEN Store_type = 'Basic Store'
+
+                                         THEN ctrl_group_SI ELSE 0 END )  AS ctrl_group_BasicStore_SI,
+
+              SUM(CASE WHEN  Store_type = 'Featured Store'
+
+                                         THEN ctrl_group_SI ELSE 0 END )  AS ctrl_group_FeaturedStore_SI,
+
+              SUM(CASE WHEN Store_type = 'NA'
+
+                                         THEN ctrl_group_SI ELSE 0 END )  AS ctrl_group_Other_typeStore_SI
+
+                                        
+
+             
+
+from pivotstore
+
+GROUP BY Weeks_from_PT_Start
+
+ORDER BY Weeks_from_PT_Start;
+
+ 
+
+DROP TABLE IF EXISTS PT_DE_Slr_Standard;
+
+CREATE TEMP TABLE PT_DE_Slr_Standard
+
+( select distinct RETAIL_YEAR
+
+              , RETAIL_WEEK
+
+              , RETAIL_WK_END_DATE
+
+              , slr_id
+
+             
+
+              ,  pt_QTR
+
+              , SIGNUP_STATUS
+
+              ,  PT_START_RETAIL_WK_END_DATE
+
+              ,  PGRM_RETAIL_WK_END_DATE
+
+              , Weeks_from_PT_Start
+
+              , SPS_SLR_LEVEL_CD seller_standard_code
+
+              , sps_slr_lvl_desc seller_standard
+
+from (select distinct cal.cal_dt
+
+                           , cal.RETAIL_YEAR
+
+                           , cal.RETAIL_WEEK
+
+                           , cal.RETAIL_WK_END_DATE
+
+                           , a.slr_id
+
+                          
+
+                           , a.pt_QTR
+
+                           , a.SIGNUP_STATUS
+
+                           , a.PT_START_RETAIL_WK_END_DATE
+
+                           , CAL2.RETAIL_WK_END_DATE AS PGRM_RETAIL_WK_END_DATE
+
+                           , ROUND((CAL.RETAIL_WK_END_DATE - CAST('2024-03-24' AS DATE)) / 7, 0)AS Weeks_from_PT_Start
+
+                           --, (cal.RETAIL_WK_END_DATE-CAL2.RETAIL_WK_END_DATE)/7 Weeks_from_PT_Start
+
+                           , sps.SPS_SLR_LEVEL_CD
+
+                           , case when sps.SPS_SLR_LEVEL_CD=1 then 'Top Rated' when sps.SPS_SLR_LEVEL_CD=2 then 'Above Standard' when sps.SPS_SLR_LEVEL_CD=4 then 'Below Standard' else 'Not assigned' end as sps_slr_lvl_desc
+
+              from PRS_RESTRICTED_V.SPS_LEVEL_METRIC_SUM sps
+
+                           INNER JOIN ACCESS_VIEWS.DW_CAL_DT CAL on cal.cal_dt BETWEEN sps.SPS_SLR_LEVEL_SUM_START_DT AND sps.SPS_SLR_LEVEL_SUM_END_DT
+
+                           INNER JOIN P_MUKIL_T.test_tool a on a.slr_id=sps.USER_ID
+
+                           INNER JOIN  ACCESS_VIEWS.DW_CAL_DT CAL2
+
+                                         ON CAL2.CAL_DT = a.PT_START_RETAIL_WK_END_DATE
+
+              where sps.SPS_SLR_LEVEL_CD in (1,2,4)
+
+                           and sps.SPS_PRGRM_ID = (CASE
+
+                           WHEN  77 = 77 THEN 4
+
+                           WHEN  3 =3 THEN 3
+
+                           WHEN  1 IN (1) THEN 2 ELSE 1 END)
+
+              and cal.RETAIL_YEAR in (2020,2021,2022,2023,2024) and cal.AGE_FOR_RTL_WEEK_ID<0
+
+              QUALIFY ROW_NUMBER() OVER (PARTITION by slr_id,cal.RETAIL_WK_END_DATE order by cal.cal_dt desc) =1
+
+              order by 4)
+
+where Weeks_from_PT_Start>= -53 AND Weeks_from_PT_Start < 2
+
+group by 1,2,3,4,5,6,7,8,9,10,11);
+
+ 
+
+DROP TABLE IF EXISTS Basetable_slr_strd;
+
+CREATE TEMP TABLE Basetable_slr_strd
+
+select
+
+  distinct y.*,
+
+  IFNULL(SELLER_STANDARD_CODE, 0) AS SELLER_STANDARD_CODE,
+
+  IFNULL(SELLER_STANDARD, 'NA') AS SELLER_STANDARD
+
+from
+
+  PT_DE_Slr_Standard x
+
+  RIGHT join Basetable_GMV y
+
+  on x.SLR_ID = y.SLR_ID
+
+  and x.SIGNUP_STATUS = y.SIGNUP_STATUS
+
+  and x.PGRM_RETAIL_WK_END_DATE = y.PGRM_RETAIL_WK_END_DATE
+
+  and x.Weeks_from_PT_Start = y.Weeks_from_PT_Start
+
+WHERE
+
+  Y.RETAIL_WK_END_DATE >= DATE_SUB(
+
+    Y.PGRM_RETAIL_WK_END_DATE,
+
+    53 * 7
+
+  )
+
+  AND Y.RETAIL_WK_END_DATE < DATE_ADD(
+
+    Y.PGRM_RETAIL_WK_END_DATE,
+
+    (2) * 7
+
+  );
+
+ 
+
+  CONVERT TO DELTA Basetable_slr_strd;
+
+  UPDATE
+
+  Basetable_slr_strd SET SIGNUP_STATUS = 'test'
+
+WHERE
+
+  LOWER(SIGNUP_STATUS) = LOWER('signed-up');
+
+  UPDATE
+
+  Basetable_slr_strd SET SIGNUP_STATUS = 'ctrl'
+
+WHERE
+
+  lower(SIGNUP_STATUS) = LOWER('not signed-up');
+
+ 
+
+  DROP TABLE IF EXISTS P_Mukil_T.Mar21_pre15_post15_slrlevel_SLRstd;
+
+  CREATE TABLE P_Mukil_T.Mar21_pre15_post15_slrlevel_SLRstd
+
+SELECT
+
+  retail_year,
+
+  retail_week,
+
+  RETAIL_WK_END_DATE,
+
+  PGRM_RETAIL_WK_END_DATE,
+
+  SLR_ID,
+
+weeks_since_On,
+
+  pt_QTR,
+
+  SIGNUP_STATUS,
+
+  PT_START_RETAIL_WK_END_DATE,
+
+  Weeks_from_PT_Start,
+
+  SELLER_STANDARD_CODE,
+
+  SELLER_STANDARD,
+
+  GMV,
+
+  SI
+
+FROM
+
+  Basetable_slr_strd
+
+  GROUP BY 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,14
+
+  ORDER BY SIGNUP_STATUS, Weeks_from_PT_Start;
+
+ 
+
+ 
+
+ 
+
+  DROP TABLE IF EXISTS WEEKLY_SLRSTD;
+
+  CREATE TEMP TABLE WEEKLY_SLRSTD
+
+SELECT
+
+              retail_year,
+
+    retail_week,
+
+              RETAIL_WK_END_DATE,
+
+              PGRM_RETAIL_WK_END_DATE,
+
+              SIGNUP_STATUS,
+
+              PT_START_RETAIL_WK_END_DATE,
+
+              Weeks_from_PT_Start,
+
+              SELLER_STANDARD,
+
+              SELLER_STANDARD_CODE,
+
+              weeks_since_On,
+
+              round(SUM(GMV),2) AS GMV,
+
+             
+
+              COUNT(SLR_ID) AS SLR_withGMV_COUNT,
+
+    SUM(SI) AS SI
+
+FROM P_MUKIL_T.Mar21_pre15_post15_slrlevel_SLRstd
+
+WHERE 1=1
+
+              AND PT_START_RETAIL_WK_END_DATE = '2024-03-24' 
+
+              AND RETAIL_WK_END_DATE >= DATE_SUB(PGRM_RETAIL_WK_END_DATE, 53*7)
+
+              AND RETAIL_WK_END_DATE < DATE_ADD(PGRM_RETAIL_WK_END_DATE, (2)*7)
+
+GROUP BY
+
+              retail_year,
+
+    retail_week,
+
+              RETAIL_WK_END_DATE,
+
+              PGRM_RETAIL_WK_END_DATE ,
+
+              SIGNUP_STATUS,
+
+              PT_START_RETAIL_WK_END_DATE,
+
+              Weeks_from_PT_Start,
+
+              SELLER_STANDARD,
+
+              SELLER_STANDARD_CODE,
+
+              weeks_since_On;
+
+             
+
+             
+
+ 
+
+-- select * from WEEKLY_SLRSTD
+
+-- Select SUM(gmv) from WEEKLY_SLRSTD
+
+--  WHERE  weeks_since_On = -46 AND SIGNUP_STATUS = 'ctrl'
+
+ 
+
+             
+
+             
+
+ 
+
+             
+
+              drop table if exists pivot_weeklyslrstd;
+
+              CREATE temp TABLE pivot_weeklyslrstd as
+
+select
+
+              CAST(Weeks_from_PT_Start as dec(18,0)) Weeks_from_PT_Start,
+
+              SELLER_STANDARD,
+
+              SELLER_STANDARD_CODE,
+
+              SUM(CASE WHEN SIGNUP_STATUS = 'test' 
+
+                                         THEN GMV ELSE 0 END )  AS test_group_GMV,
+
+              SUM(CASE WHEN SIGNUP_STATUS = 'ctrl'
+
+                                         THEN GMV ELSE 0 END )  AS ctrl_group_GMV,
+
+              SUM(CASE WHEN SIGNUP_STATUS = 'test' 
+
+                                         THEN SLR_withGMV_COUNT ELSE 0 END )  AS test_group_SLR_withGMV_COUNT,
+
+              SUM(CASE WHEN SIGNUP_STATUS = 'ctrl'
+
+                                         THEN SLR_withGMV_COUNT ELSE 0 END )  AS ctrl_group_SLR_withGMV_COUNT,
+
+                           SUM(CASE WHEN SIGNUP_STATUS = 'test' 
+
+                                         THEN SI ELSE 0 END )  AS test_group_SI,
+
+              SUM(CASE WHEN SIGNUP_STATUS = 'ctrl'
+
+                                         THEN SI ELSE 0 END )  AS ctrl_group_SI
+
+from WEEKLY_SLRSTD
+
+GROUP BY Weeks_from_PT_Start,SELLER_STANDARD,
+
+              SELLER_STANDARD_CODE
+
+ORDER BY Weeks_from_PT_Start,SELLER_STANDARD,
+
+              SELLER_STANDARD_CODE;
+
+             
+
+              drop table if exists P_MUKIL_T.Mar21_pre15_post15_weekly_SLRstd;
+
+              CREATE TABLE P_MUKIL_T.Mar21_pre15_post15_weekly_SLRstd AS
+
+select
+
+              Weeks_from_PT_Start,
+
+             
+
+              SUM(CASE WHEN SELLER_STANDARD_CODE = 1
+
+                                         THEN test_group_GMV ELSE 0 END )  AS test_group_TopRated_SegmentGMV,
+
+              SUM(CASE WHEN SELLER_STANDARD_CODE = 2
+
+                                         THEN test_group_GMV ELSE 0 END )  AS test_group_AboveStandard_SegmentGMV,
+
+              SUM(CASE WHEN SELLER_STANDARD_CODE = 4
+
+                                         THEN test_group_GMV ELSE 0 END )  AS test_group_BelowStandard_SegmentGMV,
+
+              SUM(CASE WHEN SELLER_STANDARD_CODE = 0
+
+                                         THEN test_group_GMV ELSE 0 END )  AS test_group_Other_SegmentGMV,
+
+                                        
+
+              SUM(CASE WHEN SELLER_STANDARD_CODE = 1
+
+                                         THEN ctrl_group_GMV ELSE 0 END )  AS ctrl_group_TopRated_SegmentGMV,
+
+              SUM(CASE WHEN SELLER_STANDARD_CODE = 2
+
+                                         THEN ctrl_group_GMV ELSE 0 END )  AS ctrl_group_AboveStandard_SegmentGMV,
+
+              SUM(CASE WHEN SELLER_STANDARD_CODE = 4
+
+                                         THEN ctrl_group_GMV ELSE 0 END )  AS ctrl_group_BelowStandard_SegmentGMV,
+
+              SUM(CASE WHEN SELLER_STANDARD_CODE = 0
+
+                                         THEN ctrl_group_GMV ELSE 0 END )  AS ctrl_group_Other_SegmentGMV,
+
+             
+
+              SUM(CASE WHEN SELLER_STANDARD_CODE = 1
+
+                                         THEN test_group_SLR_withGMV_COUNT ELSE 0 END )  AS test_group_TopRated_SegmentSLR_withGMV_COUNT,
+
+              SUM(CASE WHEN SELLER_STANDARD_CODE = 2
+
+                                         THEN test_group_SLR_withGMV_COUNT ELSE 0 END )  AS test_group_AboveStandard_SegmentSLR_withGMV_COUNT,
+
+              SUM(CASE WHEN SELLER_STANDARD_CODE = 4
+
+                                         THEN test_group_SLR_withGMV_COUNT ELSE 0 END )  AS test_group_BelowStandard_SegmentSLR_withGMV_COUNT,
+
+              SUM(CASE WHEN SELLER_STANDARD_CODE = 0
+
+                                         THEN test_group_SLR_withGMV_COUNT ELSE 0 END )  AS test_group_Other_SegmentSLR_withGMV_COUNT,
+
+                                        
+
+              SUM(CASE WHEN SELLER_STANDARD_CODE = 1
+
+                                         THEN ctrl_group_SLR_withGMV_COUNT ELSE 0 END )  AS ctrl_group_TopRated_SegmentSLR_withGMV_COUNT,
+
+              SUM(CASE WHEN SELLER_STANDARD_CODE = 2
+
+                                         THEN ctrl_group_SLR_withGMV_COUNT ELSE 0 END )  AS ctrl_group_AboveStandard_SegmentSLR_withGMV_COUNT,
+
+              SUM(CASE WHEN SELLER_STANDARD_CODE = 4
+
+                                         THEN ctrl_group_SLR_withGMV_COUNT ELSE 0 END )  AS ctrl_group_BelowStandard_SegmentSLR_withGMV_COUNT,
+
+              SUM(CASE WHEN SELLER_STANDARD_CODE = 0
+
+                                         THEN ctrl_group_SLR_withGMV_COUNT ELSE 0 END )  AS ctrl_group_Other_SegmentSLR_withGMV_COUNT,
+
+                                        
+
+              SUM(CASE WHEN SELLER_STANDARD_CODE = 1
+
+                                         THEN test_group_SI ELSE 0 END )  AS test_group_TopRated_Segment_SI,
+
+              SUM(CASE WHEN SELLER_STANDARD_CODE = 2
+
+                                         THEN test_group_SI ELSE 0 END )  AS test_group_AboveStandard_Segment_SI,
+
+              SUM(CASE WHEN SELLER_STANDARD_CODE = 4
+
+                                         THEN test_group_SI ELSE 0 END )  AS test_group_BelowStandard_Segment_SI,
+
+              SUM(CASE WHEN SELLER_STANDARD_CODE = 0
+
+                                         THEN test_group_SI ELSE 0 END )  AS test_group_Other_Segment_SI,
+
+                                        
+
+              SUM(CASE WHEN SELLER_STANDARD_CODE = 1
+
+                                         THEN ctrl_group_SI ELSE 0 END )  AS ctrl_group_TopRated_Segment_SI,
+
+              SUM(CASE WHEN SELLER_STANDARD_CODE = 2
+
+                                         THEN ctrl_group_SI ELSE 0 END )  AS ctrl_group_AboveStandard_Segment_SI,
+
+              SUM(CASE WHEN SELLER_STANDARD_CODE = 4
+
+                                         THEN ctrl_group_SI ELSE 0 END )  AS ctrl_group_BelowStandard_Segment_SI,
+
+              SUM(CASE WHEN SELLER_STANDARD_CODE = 0
+
+                                         THEN ctrl_group_SI ELSE 0 END )  AS ctrl_group_Other_Segment_SI              
+
+             
+
+from pivot_weeklyslrstd
+
+GROUP BY Weeks_from_PT_Start
+
+ORDER BY Weeks_from_PT_Start;
+
+ 
+
+drop table if exists P_MUKIL_T.Mar21_pre15_post15_masterdataset_weekly;
+
+CREATE TABLE P_MUKIL_T.Mar21_pre15_post15_masterdataset_weekly AS
+
+ 
+
+SELECT
+
+              A.*,
+
+             
+
+              test_group_LL,
+
+              ctrl_group_LL,
+
+              test_group_FGNL,
+
+              ctrl_group_FGNL,
+
+              test_group_RL,
+
+              ctrl_group_RL,
+
+             
+
+              test_group_PLS_Net_Revenue,
+
+              ctrl_group_PLS_Net_Revenue,
+
+              test_group_PLA_Net_Revenue,
+
+              ctrl_group_PLA_Net_Revenue,
+
+              test_group_PL_Net_Revenue,
+
+              ctrl_group_PL_Net_Revenue,
+
+ 
+
+              test_group_AnchorStore_GMV,
+
+              test_group_BasicStore_GMV,
+
+              test_group_FeaturedStore_GMV,
+
+              test_group_Other_typeStore_GMV,
+
+              ctrl_group_AnchorStore_GMV,
+
+              ctrl_group_BasicStore_GMV,
+
+              ctrl_group_FeaturedStore_GMV,
+
+              ctrl_group_Other_typeStore_GMV,
+
+test_group_AnchorStoreSLR_withGMV_COUNT,
+
+  test_group_BasicStoreSLR_withGMV_COUNT,
+
+test_group_FeaturedStoreSLR_withGMV_COUNT,
+
+test_group_Other_typeStoreSLR_withGMV_COUNT,                                        
+
+ctrl_group_AnchorStoreSLR_withGMV_COUNT,
+
+   ctrl_group_BasicStoreSLR_withGMV_COUNT,
+
+ctrl_group_FeaturedStoreSLR_withGMV_COUNT,
+
+ctrl_group_Other_typeStoreSLR_withGMV_COUNT,
+
+              test_group_AnchorStore_SI,
+
+              test_group_BasicStore_SI,
+
+              test_group_FeaturedStore_SI,
+
+              test_group_Other_typeStore_SI,                   
+
+              ctrl_group_AnchorStore_SI,
+
+              ctrl_group_BasicStore_SI,
+
+              ctrl_group_FeaturedStore_SI,
+
+              ctrl_group_Other_typeStore_SI,
+
+ 
+
+              test_group_TopRated_SegmentGMV,
+
+         test_group_AboveStandard_SegmentGMV,
+
+         test_group_BelowStandard_SegmentGMV,
+
+              test_group_Other_SegmentGMV,
+
+              ctrl_group_TopRated_SegmentGMV,
+
+          ctrl_group_AboveStandard_SegmentGMV,
+
+          ctrl_group_BelowStandard_SegmentGMV,
+
+              ctrl_group_Other_SegmentGMV,
+
+test_group_TopRated_SegmentSLR_withGMV_COUNT,
+
+test_group_AboveStandard_SegmentSLR_withGMV_COUNT,
+
+test_group_BelowStandard_SegmentSLR_withGMV_COUNT,
+
+test_group_Other_SegmentSLR_withGMV_COUNT,
+
+ctrl_group_TopRated_SegmentSLR_withGMV_COUNT,
+
+ctrl_group_AboveStandard_SegmentSLR_withGMV_COUNT,
+
+ctrl_group_BelowStandard_SegmentSLR_withGMV_COUNT,
+
+ctrl_group_Other_SegmentSLR_withGMV_COUNT,
+
+              test_group_TopRated_Segment_SI,
+
+            test_group_AboveStandard_Segment_SI,
+
+             test_group_BelowStandard_Segment_SI,
+
+              test_group_Other_Segment_SI,
+
+              ctrl_group_TopRated_Segment_SI,
+
+             ctrl_group_AboveStandard_Segment_SI,
+
+             ctrl_group_BelowStandard_Segment_SI,
+
+              ctrl_group_Other_Segment_SI
+
+             
+
+FROM P_MUKIL_T.Mar21_pre15_post15_weekly_GMV A
+
+JOIN P_MUKIL_T.Mar21_pre15_post15_weekly_LL B ON A.consolidated_weekvalue = B.consolidated_weekvalue
+
+JOIN P_MUKIL_T.Mar21_pre15_post15_weekly_PL C ON A.consolidated_weekvalue = C.Weeks_from_PT_Start
+
+JOIN P_MUKIL_T.Mar21_pre15_post15_weekly_store D ON A.consolidated_weekvalue = D.Weeks_from_PT_Start
+
+JOIN P_MUKIL_T.Mar21_pre15_post15_weekly_SLRstd E ON A.consolidated_weekvalue = E.Weeks_from_PT_Start;
+
+ 
+
+drop table if exists P_MUKIL_T.Mar21_pre15_post15_masterdataset_slr;
+
+CREATE TABLE P_MUKIL_T.Mar21_pre15_post15_masterdataset_slr AS
+
+SELECT
+
+              A.RETAIL_YEAR,
+
+              A.retail_week,
+
+              A.RETAIL_WK_END_DATE,
+
+              A.PT_START_RETAIL_WK_END_DATE ,
+
+              A.PGRM_RETAIL_WK_END_DATE,
+
+              A.pt_QTR ,
+
+              A.SIGNUP_STATUS,
+
+              A.SLR_ID,
+
+             
+
+              A.Weeks_from_PT_Start,
+
+              A.FIRST_GEN_LISTINGS,
+
+              A.RE_LISTINGS,
+
+              A.LL,
+
+              b.consolidated_Weekvalue,
+
+                          
+
+             
+
+              IFNULL(B.GMV,0) AS WEEK_GMV,
+
+              IFNULL(B.SLR_withGMV_COUNT,0) AS SLR_withGMV_COUNT,
+
+              IFNULL(B.SI,0) AS WEEK_SI,
+
+              IFNULL(B.SLR_GMV,0) AS SLR_GMV,
+
+              IFNULL(B.SLR_SI,0) AS SLR_SI,
+
+--           IFNULL(B.GMV,0) AS SLR_GMV,
+
+--           IFNULL(B.SI,0) AS SLR_SI,
+
+ 
+
+             
+
+              IFNULL(PLS_Net,0) AS PLS_Net_Revenue,                              
+
+              IFNULL(PLA_Net,0) AS PLA_Net_Revenue,   
+
+              IFNULL(PL_Net_Revenue,0) AS PL_Net_Revenue,      
+
+             
+
+              --IFNULL(Store_type, 'NA') AS Store_type,                                                                                                                                                                                                                                                   
+
+              IFNULL(D.GMV,0) AS Storetype_slr_GMV,  
+
+              IFNULL(D.SI,0) AS Storetype_slr_SI,                                                                    
+
+                                                                                                                                        
+
+              IFNULL(SELLER_STANDARD_CODE              ,0) AS SELLER_STANDARD_CODELL,                                                      
+
+              IFNULL(SELLER_STANDARD, 'NA') AS SELLER_STANDARD,             
+
+              IFNULL(E.GMV ,0) AS slr_std_GMV,
+
+              IFNULL(E.SI ,0) AS slr_std_SI                                                                                                                          
+
+ 
+
+FROM P_Mukil_T.Mar21_pre15_post15_slrlevel_LL A
+
+LEFT JOIN P_Mukil_T.Mar21_pre15_post15_slrlevel_GMV B
+
+ON
+
+A.SLR_ID=B.SLR_ID
+
+AND
+
+A.Weeks_from_PT_Start=B.consolidated_Weekvalue
+
+AND A.PGRM_RETAIL_WK_END_DATE=B.PGRM_RETAIL_WK_END_DATE
+
+LEFT JOIN P_Mukil_T.Mar21_pre15_post15_slrlevel_PL C ON A.SLR_ID=C.slr_id AND A.Weeks_from_PT_Start=C.Weeks_from_PT_Start AND A.PGRM_RETAIL_WK_END_DATE=C.PGRM_RETAIL_WK_END_DATE
+
+LEFT JOIN P_Mukil_T.Mar21_pre15_post15_slrlevel_store D ON A.SLR_ID=D.SLR_ID AND A.Weeks_from_PT_Start=D.Weeks_from_PT_Start AND A.PGRM_RETAIL_WK_END_DATE=D.PGRM_RETAIL_WK_END_DATE
+
+LEFT JOIN P_Mukil_T.Mar21_pre15_post15_slrlevel_SLRstd E ON A.SLR_ID=E.SLR_ID AND A.Weeks_from_PT_Start=E.Weeks_from_PT_Start AND A.PGRM_RETAIL_WK_END_DATE=E.PGRM_RETAIL_WK_END_DATE
+
+WHERE A.Weeks_from_PT_Start BETWEEN -53 AND 2-1
+
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27;
+
+ 
+
+ 
+
+ 
+
+drop table if exists P_MUKIL_T.Mar21_pre15_post15_masterdataset_slr1;
+
+CREATE TABLE P_MUKIL_T.Mar21_pre15_post15_masterdataset_slr1 AS
+
+    select
+
+        slr_id,
+
+        SUM(FIRST_GEN_LISTINGS) as FIRST_GEN_LISTINGS,
+
+        SUM(RE_LISTINGS) as RE_LISTINGS,
+
+        SUM(LL) as LL,
+
+        SUM(WEEK_GMV) as WEEK_GMV,
+
+        SUM(PLS_Net_Revenue) as PLS_Net_Revenue,
+
+        SUM(PLA_Net_Revenue) as PLA_Net_Revenue,
+
+        SUM(PL_Net_Revenue) as PL_Net_Revenue,
+
+        SUM(Storetype_slr_GMV) as Storetype_slr_GMV,
+
+        SUM(Storetype_slr_SI) as Storetype_slr_SI
+
+    from P_MUKIL_T.Mar21_pre15_post15_masterdataset_slr
+
+    group by slr_id;
+
+ 
+
+drop table if exists P_MUKIL_T.Mar21_pre15_post15_masterdataset_slr12;
+
+CREATE TABLE P_MUKIL_T.Mar21_pre15_post15_masterdataset_slr12 AS
+
+ 
+
+    select distinct
+
+        a.retail_year,
+
+        a.retail_week,
+
+        a.RETAIL_WK_END_DATE,
+
+        a.PT_START_RETAIL_WK_END_DATE,
+
+        a.PGRM_RETAIL_WK_END_DATE,
+
+        a.SLR_ID ID,
+
+        a.pt_QTR,
+
+        a.SIGNUP_STATUS,
+
+        a.Weeks_from_PT_Start,
+
+        a.weeks_since_On as consolidated_weekvalue,
+
+        a.GMV,
+
+        a.SI,
+
+        b.*
+
+    --from Basetable_GMV a
+
+              from P_Mukil_T.Mar21_pre15_post15_slrlevel_SLRstd a
+
+    left join P_MUKIL_T.Mar21_pre15_post15_masterdataset_slr1 b on a.slr_id = b.slr_id;
+
+ 
+
+drop table if exists P_MUKIL_T.Mar21_pre15_post15_masterdataset_slr14;
+
+CREATE TABLE P_MUKIL_T.Mar21_pre15_post15_masterdataset_slr14 AS
+
+    select distinct * from P_MUKIL_T.Mar21_pre15_post15_masterdataset_slr12;
+
+ 
+
+select * from P_MUKIL_T.Mar21_pre15_post15_masterdataset_slr14
